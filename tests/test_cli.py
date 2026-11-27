@@ -42,3 +42,29 @@ def test_version(capsys):
     with pytest.raises(SystemExit):
         cli.main(["--version"])
     assert "0.1.0" in capsys.readouterr().out
+
+
+def test_index_build_and_search(tmp_path, offline, capsys):
+    out = tmp_path / "corpus"
+    qdrant = str(tmp_path / "qdrant")
+    cli.main(["corpus", "build", "--date", "2026-01-01", "--part", "99:9999", "--out", str(out)])
+    capsys.readouterr()
+    args = ["--corpus", str(out), "--qdrant", qdrant, "--model", "hashing-512"]
+    assert cli.main(["index", "build", *args]) == 0
+    assert "with hashing-512 (512 dims)" in capsys.readouterr().out
+    # search reads the encoder from the collection, so --model is not needed.
+    assert (
+        cli.main(["search", "What is a preauthorized transfer?", "--qdrant", qdrant, "-k", "2"])
+        == 0
+    )
+    printed = capsys.readouterr().out
+    assert printed.startswith("1. [")
+    assert "2. [" in printed
+    assert "[99 CFR 9999.2(i)]" in printed
+    assert cli.main(["search", "transfer", "--qdrant", qdrant, "--part", "1005"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_search_without_an_index(tmp_path):
+    with pytest.raises(SystemExit, match="run policy-assistant index build"):
+        cli.main(["search", "anything", "--qdrant", str(tmp_path / "none")])

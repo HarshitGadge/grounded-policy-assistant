@@ -75,6 +75,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[dev,fastembed,eval]'
+      - name: Install RAGBench from GitHub (recall at any cutoff is not on PyPI yet)
+        # ragbench-eval 1.1.1 on PyPI reports recall only at 10 and 100. --recall-k was
+        # added on main in HarshitGadge/ragbench PR 16; this pins that commit. Drop this
+        # step once a release has it, and raise the eval extra's minimum to that release.
+        run: pip install --force-reinstall --no-deps "ragbench-eval @ git+https://github.com/HarshitGadge/ragbench@64d260ebd4836bf0f33372e214d0f1f739e96f36"
       - uses: actions/cache@v4
         with:
           path: /home/runner/.cache/fastembed
@@ -114,12 +119,14 @@ jobs:
       - name: Score retrieval with RAGBench (dense Qdrant vs BM25)
         run: |
           ragbench run --data data/regulations-qa --retriever policy_assistant.retriever:QdrantRetriever \
-            --param model=BAAI/bge-small-en-v1.5 --name qdrant-bge-small --out results/retrieval__qdrant.json --quiet
+            --param model=BAAI/bge-small-en-v1.5 --name qdrant-bge-small --recall-k 5,10,100 --out results/retrieval__qdrant.json --quiet
           ragbench run --data data/regulations-qa --retriever ragbench.retrievers.bm25:BM25 \
-            --name bm25 --out results/retrieval__bm25.json --quiet
-          ragbench report results/retrieval__*.json | tee -a "$GITHUB_STEP_SUMMARY"
+            --name bm25 --recall-k 5,10,100 --out results/retrieval__bm25.json --quiet
+          # recall@5 matches what the agent reads: the top 5 chunks.
+          ragbench report results/retrieval__*.json --metric ndcg@10 --metric recall@5 \
+            --metric recall@10 --metric recall@100 --metric mrr@10 | tee -a "$GITHUB_STEP_SUMMARY"
           ragbench compare results/retrieval__bm25.json results/retrieval__qdrant.json \
-            --metric ndcg@10 --metric recall@10 --metric mrr@10
+            --metric ndcg@10 --metric recall@5 --metric recall@10 --metric mrr@10
       - name: Score the agent with the extractive answerer (no model, no key)
         # Model answerers are not run here: the full set is about 60 questions, which is
         # billed per question on Anthropic and over the daily limit of OpenRouter's free

@@ -183,8 +183,9 @@ quietly lower the score. It writes a BEIR folder, so [RAGBench](https://github.c
 scores retrieval with no conversion, with bootstrap confidence intervals.
 
 Relevance is judged per section, and a section can have more relevant chunks than fit
-in the top 10, so recall@10 can't reach 1 for those questions. MRR@10 (how high the first
-relevant chunk ranks) is the measure that matters for the agent, which reads the top 5.
+in the top 10, so recall@10 can't reach 1 for those questions. The agent reads the top 5
+chunks, so the measures that matter for it are MRR@10 (how high the first relevant chunk
+ranks) and recall@5 (how much of the section those 5 chunks cover).
 
 `eval agent` asks the agent every question. An in-scope question counts as correct when
 the agent answers and cites at least one chunk of the labeled section; an out-of-scope
@@ -209,21 +210,25 @@ date so every day scores the same text.
 
 ### Results
 
-From [CI run 46038100221](https://github.com/HarshitGadge/grounded-policy-assistant/actions/runs/46038100221)
-(commit e56986d), on the default corpus built from eCFR in that run. The result files are
+From [CI run 46043610493](https://github.com/HarshitGadge/grounded-policy-assistant/actions/runs/46043610493)
+(commit 6b7fcd0), on the default corpus built from eCFR in that run. The result files are
 the run's `results` artifact. 95% bootstrap intervals are in parentheses.
 
 Retrieval, scored by RAGBench on the 49 in-scope questions (40 sections, 1,050 relevant
 chunks in all, 3 to 187 per question):
 
-| retriever | nDCG@10 | recall@10 | recall@100 | MRR@10 | p50 ms |
-|---|---|---|---|---|---|
-| BM25 (RAGBench's) | 0.4505 (0.375 to 0.530) | 0.2634 (0.211 to 0.320) | 0.5966 (0.527 to 0.667) | 0.6872 (0.577 to 0.790) | 0.75 |
-| Qdrant, bge-small-en-v1.5 | 0.5894 (0.526 to 0.653) | 0.3595 (0.294 to 0.427) | 0.7056 (0.637 to 0.770) | 0.8714 (0.785 to 0.946) | 12.87 |
+| retriever | nDCG@10 | recall@5 | recall@10 | recall@100 | MRR@10 | p50 ms |
+|---|---|---|---|---|---|---|
+| BM25 (RAGBench's) | 0.4505 (0.375 to 0.530) | 0.1698 (0.133 to 0.213) | 0.2634 (0.211 to 0.320) | 0.5966 (0.527 to 0.667) | 0.6872 (0.577 to 0.790) | 1.06 |
+| Qdrant, bge-small-en-v1.5 | 0.5894 (0.526 to 0.653) | 0.2476 (0.198 to 0.305) | 0.3595 (0.294 to 0.427) | 0.7056 (0.637 to 0.770) | 0.8714 (0.785 to 0.946) | 14.52 |
 
 `ragbench compare` (paired bootstrap, 49 questions): dense retrieval beats BM25 on
-nDCG@10 by +0.1389 (95% CI +0.0914 to +0.1900), on recall@10 by +0.0961 (+0.0483 to
-+0.1469) and on MRR@10 by +0.1842 (+0.0960 to +0.2729), all significant.
+nDCG@10 by +0.1389 (95% CI +0.0914 to +0.1900), on recall@5 by +0.0778 (+0.0406 to
++0.1206), on recall@10 by +0.0961 (+0.0483 to +0.1469) and on MRR@10 by +0.1842 (+0.0960
+to +0.2729), all significant.
+
+recall@5 needs RAGBench's `--recall-k`, which is on its main branch but not yet in a PyPI
+release, so CI installs RAGBench from GitHub at a pinned commit.
 
 The agent with the extractive answerer (no model), k = 5:
 

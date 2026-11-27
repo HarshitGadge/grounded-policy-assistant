@@ -8,6 +8,7 @@ date and parts is the same text every time.
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
 import time
@@ -55,12 +56,17 @@ def part_url(title: int, part: str, date: str) -> str:
 
 
 def _get(url: str, timeout: float, accept: str, attempts: int = 4) -> bytes:
-    # eCFR answers 406 Not Acceptable unless the Accept header names the format asked for.
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": accept})
+    # eCFR's full-text endpoint answers 406 Not Acceptable unless the request
+    # names the format and allows a compressed response.
+    headers = {"User-Agent": USER_AGENT, "Accept": accept, "Accept-Encoding": "gzip"}
+    request = urllib.request.Request(url, headers=headers)
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.read()
+                body = response.read()
+                if (response.headers.get("Content-Encoding") or "").lower() == "gzip":
+                    body = gzip.decompress(body)
+                return body
         except urllib.error.HTTPError as err:
             # eCFR answers 429 when it is busy; anything else is a real error.
             if (err.code != 429 and err.code < 500) or attempt == attempts - 1:

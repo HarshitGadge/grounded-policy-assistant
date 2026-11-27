@@ -1,3 +1,4 @@
+import gzip
 import json
 import urllib.error
 
@@ -57,8 +58,9 @@ def test_part_url():
 
 
 class FakeResponse:
-    def __init__(self, body: bytes):
+    def __init__(self, body: bytes, headers: dict | None = None):
         self.body = body
+        self.headers = headers or {}
 
     def read(self):
         return self.body
@@ -104,6 +106,17 @@ def test_fetch_asks_for_xml(monkeypatch):
     monkeypatch.setattr(ecfr.urllib.request, "urlopen", urlopen)
     ecfr.fetch_part(12, "1005", "2026-01-01")
     assert seen["accept"] == "application/xml"
+    assert seen["accept-encoding"] == "gzip"  # eCFR refuses uncompressed full text
+
+
+def test_fetch_decompresses_gzip(monkeypatch):
+    body = gzip.compress(b"<DIV5/>")
+    monkeypatch.setattr(
+        ecfr.urllib.request,
+        "urlopen",
+        lambda req, timeout: FakeResponse(body, {"Content-Encoding": "gzip"}),
+    )
+    assert ecfr.fetch_part(12, "1005", "2026-01-01") == b"<DIV5/>"
 
 
 def test_fetch_does_not_retry_not_found(monkeypatch):

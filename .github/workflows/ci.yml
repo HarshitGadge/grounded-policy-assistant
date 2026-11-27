@@ -61,22 +61,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[dev]'
-      - name: Probe eCFR's API (diagnostics)
-        continue-on-error: true
-        run: |
-          base=https://www.ecfr.gov/api/versioner/v1
-          d=$(curl -s "$base/titles.json" | python -c "import json,sys; print([t for t in json.load(sys.stdin)['titles'] if t['number']==12][0])")
-          echo "title 12: $d"
-          for u in "$base/full/2026-11-24/title-12.xml?part=1005" \
-                   "$base/full/2026-11-24/title-12.xml?part=1005&section=1005.6" \
-                   "$base/full/2026-11-20/title-12.xml?part=1005" \
-                   "$base/full/2026-11-24/title-12.xml?chapter=X&part=1005" \
-                   "$base/structure/2026-11-24/title-12.json" ; do
-            for a in "application/xml" "*/*" ""; do
-              code=$(curl -s -o /tmp/body -w '%{http_code} %{content_type} %{size_download}' ${a:+-H "Accept: $a"} "$u")
-              echo "[$a] $u -> $code"; head -c 300 /tmp/body; echo
-            done
-          done
       - name: Build the corpus from eCFR
         run: policy-assistant corpus build --date latest --out data/corpus
       - name: Summarise it

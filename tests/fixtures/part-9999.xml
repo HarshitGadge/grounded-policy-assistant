@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test fixture shaped like eCFR's versioner XML for one part. The wording is
+     invented for the tests and is not regulation text. -->
+<DIV5 N="9999" TYPE="PART">
+  <HEAD>PART 9999—EXAMPLE TRANSFERS (REGULATION X)</HEAD>
+  <AUTH><HED>Authority:</HED><PSPACE>12 U.S.C. 0000.</PSPACE></AUTH>
+  <SOURCE><HED>Source:</HED><PSPACE>00 FR 00000, Jan. 1, 2000.</PSPACE></SOURCE>
+  <DIV6 N="A" TYPE="SUBPART">
+    <HEAD>Subpart A—General</HEAD>
+    <DIV8 N="9999.1" TYPE="SECTION">
+      <HEAD>§ 9999.1 Authority and purpose.</HEAD>
+      <P>(a) <I>Authority.</I> This part is issued under the Example Act.</P>
+      <P>(b) <I>Purpose.</I> This part sets out the rights of consumers who use example transfers.</P>
+      <CITA>[00 FR 00000, Jan. 1, 2000]</CITA>
+    </DIV8>
+    <DIV8 N="9999.2" TYPE="SECTION">
+      <HEAD>§ 9999.2 Definitions.</HEAD>
+      <P>For the purposes of this part, the following definitions apply:</P>
+      <P>(a)(1) <I>Access device</I> means a card or code used to start a transfer.</P>
+      <P>(2) An access device becomes an accepted access device when the consumer uses it.</P>
+      <P>(b)(1) <I>Account</I> means a demand deposit account held by a consumer.</P>
+      <P>(i) It includes a savings account.</P>
+      <P>(ii) It does not include an account held under a bona fide trust agreement.</P>
+      <P>This paragraph has no marker and continues (b)(1)(ii).</P>
+      <P>(2) An account does not include an occasional or incidental credit balance.</P>
+      <P>(c) <I>Business day</I> means any day on which the offices of the institution are open.</P>
+      <P>(d) <I>Consumer</I> means a natural person.</P>
+      <P>(e) <I>Credit</I> means the right to defer payment of debt.</P>
+      <P>(f) <I>Electronic terminal</I> means an electronic device through which a consumer may start a transfer.</P>
+      <P>(g) <I>Financial institution</I> means a bank or any other person that holds an account.</P>
+      <P>(h)(1) <I>Person</I> means a natural person or an organization.</P>
+      <P>(i) <I>Preauthorized transfer</I> means a transfer authorized in advance to recur at substantially regular intervals.</P>
+      <P>(j) <I>State</I> means any State of the United States.</P>
+      <EXTRACT><P>(k) <I>Unauthorized transfer</I> means a transfer from an account started by a person other than the consumer without actual authority.</P></EXTRACT>
+      <FTNT><P>1 This footnote is not regulation text and must be skipped.</P></FTNT>
+      <CITA>[00 FR 00000, Jan. 1, 2000]</CITA>
+    </DIV8>
+    <DIV8 N="9999.3" TYPE="SECTION">
+      <HEAD>§ 9999.3 Liability of consumer.</HEAD>
+      <P>(a) <I>Conditions.</I> A consumer may be liable for an unauthorized transfer only if the conditions in this section are met.</P>
+      <P>(b)(1) <I>Timely notice.</I> If the consumer notifies the institution within two business days, liability shall not exceed the lesser of $50 or the amount of transfers before notice.</P>
+      <P>(2) <I>Late notice.</I> If the consumer does not notify the institution within two business days, liability shall not exceed $500.</P>
+      <P>(i) The first limit applies to transfers before the close of the two business days.</P>
+      <P>(ii) The second limit applies to transfers after that.</P>
+      <P>(iii) A transfer on the day of notice counts as before notice.</P>
+      <P>(3) <I>Notice to the institution.</I> (i) Notice is given when the consumer takes reasonable steps to tell the institution.</P>
+      <P>(ii) Notice may be given in person, by telephone, or in writing.</P>
+      <P>(c) <I>Error resolution standards</I>—(1) <I>Compliance program.</I> An institution must keep written procedures.</P>
+      <P>(2) <I>Records.</I> An institution must keep records for two years.</P>
+      <FP-2>Records may be kept electronically.</FP-2>
+      <P>(d) <I>Scope.</I> This section applies to accounts as defined in § 9999.2(b). (1) This sentence is not a child paragraph.</P>
+    </DIV8>
+    <DIV8 N="9999.4" TYPE="SECTION">
+      <HEAD>§ 9999.4 [Reserved]</HEAD>
+    </DIV8>
+  </DIV6>
+  <DIV9 N="Appendix A to Part 9999" TYPE="APPENDIX">
+    <HEAD>Appendix A to Part 9999—Model Disclosure Clauses</HEAD>
+    <HD1>A-1 Consumer's Liability</HD1>
+    <P>Tell us AT ONCE if you believe your card has been lost or stolen.</P>
+    <HD1>A-2 Business Days</HD1>
+    <P>Our business days are Monday through Friday.</P>
+    <HD1>A-3 Model Form</HD1>
+    <P>(Name of institution)</P>
+    <HD1>A-3 Model Form</HD1>
+    <P>(Name of institution)</P>
+  </DIV9>
+  <DIV9 N="Supplement I to Part 9999" TYPE="APPENDIX">
+    <HEAD>Supplement I to Part 9999—Official Interpretations</HEAD>
+    <HD1>Section 9999.2—Definitions</HD1>
+    <HD2>2(a) Access Device</HD2>
+    <P>1. <I>Examples.</I> The term includes debit cards and personal identification numbers.</P>
+    <P>2. <I>Checks.</I> The term does not include a check.</P>
+    <HD2>2(b)(1) Account</HD2>
+    <P>1. <I>Consumer asset account.</I> The term includes a prepaid account.</P>
+    <HD2>Paragraph 2(b)(2)</HD2>
+    <P>1. <I>Trust agreements.</I> Institutions look to state law.</P>
+    <HD1>Section 9999.3—Liability of Consumer</HD1>
+    <P>(b)(1) <I>Timely notice.</I></P>
+    <P>1. <I>Two business days.</I> The two days begin when the consumer learns of the loss.</P>
+    <P>i. A loss learned of on a Saturday is learned of on that day.</P>
+    <P>ii. A holiday is not a business day.</P>
+    <P>2. <I>Extenuating circumstances.</I> Examples include extended travel.</P>
+    <P>3(c) <I>Error resolution.</I> 1. <I>Procedures.</I> Written procedures may be kept on paper.</P>
+  </DIV9>
+</DIV5>

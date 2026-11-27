@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "ruff>=0.6"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (with RAGBench, to check it reads the corpus)
+        run: pip install -e '.[dev]' ragbench-eval
+      - name: Test
+        run: pytest -rs --cov=policy_assistant --cov-report=term-missing
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - name: Install the wheel in a clean venv and run the CLI
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          /tmp/venv/bin/policy-assistant --version
+          /tmp/venv/bin/policy-assistant corpus --help
+
+  live-ecfr:
+    # Builds the default corpus from the real eCFR and checks it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev]'
+      - name: Build the corpus from eCFR
+        run: policy-assistant corpus build --date latest --out data/corpus
+      - name: Summarise it
+        run: |
+          policy-assistant corpus stats data/corpus --show 5
+          cat data/corpus/manifest.json
+      - name: Show eCFR's XML for a section and the interpretations
+        run: |
+          xml=$(ls data/corpus/raw/title-12-part-1005-*.xml)
+          python scripts/inspect_ecfr.py "$xml" 1005.6
+          python scripts/inspect_ecfr.py "$xml" "Supplement I to Part 1005"
+          python scripts/inspect_ecfr.py data/corpus/raw/title-12-part-1002-*.xml "Supplement I to Part 1002"
+          python scripts/inspect_ecfr.py data/corpus/raw/title-12-part-1030-*.xml "Supplement I to Part 1030"
+      - name: Print sample citations
+        run: |
+          python - <<'PY'
+          from policy_assistant.corpus import load_corpus
+          rows = load_corpus("data/corpus")
+          for r in rows[::max(1, len(rows) // 40)]:
+              print(r["citation"], "|", r["text"][:90].replace("\n", " "))
+          PY
+      - name: Check it
+        run: pytest -m live -rs tests/live
+        env:
+          GPA_CORPUS: data/corpus
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corpus
+          path: data/corpus/
+          retention-days: 14

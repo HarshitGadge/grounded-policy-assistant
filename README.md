@@ -5,8 +5,8 @@ regulation text it retrieves, cites the exact paragraph each claim rests on
 (for example `12 CFR 1005.6(b)(1)`), and says it can't answer when the text doesn't
 support one. Retrieval quality is measured with [RAGBench](https://github.com/HarshitGadge/ragbench).
 
-> Status: early. It builds the citable regulation corpus and searches it in Qdrant.
-> The LangGraph agent and the RAGBench evaluation come in the next PRs.
+> Status: early. It builds the citable regulation corpus, searches it in Qdrant, and
+> answers with citations or refuses. The RAGBench evaluation comes in the next PR.
 > This README will only show numbers produced by runs in this repository.
 
 ## The corpus
@@ -92,6 +92,55 @@ policy-assistant search "Can a creditor ask about marital status?" --part 1002
       --retriever policy_assistant.retriever:QdrantRetriever
   ```
 
+## Ask it
+
+```bash
+export ANTHROPIC_API_KEY=...       # each question is one or two billed API requests
+policy-assistant ask "How much can a consumer lose if they report a lost debit card within two business days?"
+policy-assistant ask "Can a creditor ask about marital status?" --part 1002 --json
+policy-assistant ask --answerer extractive "What is a preauthorized transfer?"   # no model, no key
+```
+
+An answer is a list of short claims, each with numbered citations, then the sources:
+
+```
+<claim> [1]
+<claim> [1][2]
+
+Sources:
+[1] 12 CFR <section and paragraph>
+[2] 12 CFR part <part>, Supplement I to Part <part>, comment <number>
+```
+
+The agent is a [LangGraph](https://github.com/langchain-ai/langgraph) graph
+(`policy_assistant.agent.PolicyAgent`):
+
+```
+retrieve -> grade --(nothing relevant)--------------------------> refuse
+              \--> generate -> verify --(every claim cited)-----> answer
+                       ^          |----(a claim lost its source)-> generate (once more)
+                       |__________|----(the text doesn't answer)-> refuse
+```
+
+- **retrieve** takes the `-k` closest chunks; **grade** drops any scoring under
+  `--min-score`, and refuses without calling a model if none are left.
+- **generate** asks Claude (`claude-opus-5-5` by default; `--answerer claude:<model id>`
+  picks another) for an answer in a fixed JSON schema: either claims that each cite the
+  passages they rest on, or `answerable: false` with a reason. The schema only allows
+  citations of the passages Claude was shown, and the prompt tells it to refuse rather
+  than answer from its own knowledge.
+- **verify** keeps a claim only if it cites a chunk that was retrieved. If it drops one,
+  Claude gets one more try with a note saying which; if no claim survives, the agent
+  refuses. So every citation in an answer points at text the agent actually read.
+- A refusal says why: `no_passages`, `unsupported` (Claude said the text doesn't answer),
+  `uncited`, or `model_refused` (Claude declined the request; the API's server-side
+  fallback is on, so it first retries on Anthropic's recommended fallback model).
+
+`--answerer extractive` swaps Claude for a baseline that quotes the single best-matching
+sentence, or refuses when no sentence covers most of the question's words. It calls no
+model, so the tests and CI can run the whole graph without a key; it is the floor that
+Claude has to beat in the evaluation.
+
 ## Tests
 
 ```bash
@@ -100,10 +149,14 @@ pytest -m live          # against a corpus and index you built (see tests/live)
 ```
 
 The offline tests use a hashing encoder (`--model hashing-512`), which needs no model
-download and only matches shared words. CI runs lint, the tests on Python 3.10 to 3.13,
-a package install check, and a live job that builds the default corpus from eCFR,
-indexes it with the real model, and checks that sample questions retrieve the section
-that answers them.
+download and only matches shared words, and a stand-in for the Anthropic client, so
+they need no key. CI runs lint, the tests on Python 3.10 to 3.13, a package install
+check, and a live job that builds the default corpus from eCFR, indexes it with the
+real model, checks that sample questions retrieve the section that answers them, and
+runs the agent with the extractive answerer. If the repository has an
+`ANTHROPIC_API_KEY` secret, the live job also asks Claude a few questions and checks
+that it cites the right section and refuses out-of-scope questions; without the
+secret those checks are skipped.
 
 ## License
 

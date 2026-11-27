@@ -53,12 +53,15 @@ jobs:
           /tmp/venv/bin/policy-assistant corpus --help
           /tmp/venv/bin/policy-assistant index build --help
           /tmp/venv/bin/policy-assistant search --help
+          /tmp/venv/bin/policy-assistant ask --help
 
   live:
     # Builds the default corpus from the real eCFR, indexes it in Qdrant with the real
-    # embedding model, and checks both.
+    # embedding model, and checks both and the agent. The agent's Claude checks run only
+    # if the ANTHROPIC_API_KEY repository secret is set; without it they are skipped.
     runs-on: ubuntu-latest
     env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
       GPA_CORPUS: data/corpus
       GPA_QDRANT: data/qdrant
@@ -85,6 +88,15 @@ jobs:
           policy-assistant search "How much can a consumer lose if they report a lost debit card within two business days?" -k 3
           policy-assistant search "When must a financial institution give a customer its initial privacy notice?" -k 3
           policy-assistant search "Can a creditor ask an applicant about their marital status?" -k 3
+      - name: Ask the agent a few questions, with the extractive answerer (no model)
+        run: |
+          policy-assistant ask --answerer extractive "When must a financial institution provide an initial privacy notice to a customer?"
+          policy-assistant ask --answerer extractive "How many weeks of unpaid family leave must an employer give?"
+      - name: Ask Claude the same questions
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          policy-assistant ask "When must a financial institution provide an initial privacy notice to a customer?"
+          policy-assistant ask "How many weeks of unpaid family leave must an employer give?"
       - name: Check them
         run: pytest -m live -rs tests/live
       - uses: actions/upload-artifact@v4

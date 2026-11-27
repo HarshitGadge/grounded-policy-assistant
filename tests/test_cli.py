@@ -93,3 +93,14 @@ def test_ask_with_the_extractive_answerer(tmp_path, offline, capsys):
 def test_ask_without_an_index(tmp_path):
     with pytest.raises(SystemExit, match="no index"):
         cli.main(["ask", "q", "--answerer", "extractive", "--qdrant", str(tmp_path / "none")])
+
+
+def test_ask_openrouter_without_a_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(SystemExit, match="set OPENROUTER_API_KEY"):
+        cli.main(["ask", "q", "--answerer", "openrouter", "--qdrant", str(tmp_path / "none")])
+
+
+def test_ask_reports_an_unknown_answerer(tmp_path):
+    with pytest.raises(SystemExit, match="unknown answerer"):
+        cli.main(["ask", "q", "--answerer", "gpt", "--qdrant", str(tmp_path / "none")])

@@ -117,13 +117,19 @@ def _search(args: argparse.Namespace) -> int:
 def _ask(args: argparse.Namespace) -> int:
     from .agent import PolicyAgent
     from .answerers import make_answerer
+    from .openrouter import RateLimited
 
     options = {"effort": args.effort} if args.answerer.startswith("claude") else {}
-    answerer = make_answerer(args.answerer, **options)
+    try:
+        answerer = make_answerer(args.answerer, **options)
+    except ValueError as err:
+        raise SystemExit(f"policy-assistant: {err}") from None
     index = _open_existing(args)
     try:
         agent = PolicyAgent(index, answerer, k=args.k, min_score=args.min_score)
         answer = agent.ask(args.question, parts=args.part or None)
+    except RateLimited as err:
+        raise SystemExit(f"policy-assistant: {err}") from None
     finally:
         index.client.close()
     if args.json:
@@ -238,7 +244,8 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument(
         "--answerer",
         default="claude",
-        help="claude (default, needs ANTHROPIC_API_KEY), claude:<model id>, or extractive",
+        help="claude (default, needs ANTHROPIC_API_KEY), claude:<model id>, openrouter or "
+        "openrouter:<model id> (needs OPENROUTER_API_KEY), or extractive",
     )
     ask.add_argument("--effort", default="medium", help="Claude's effort level")
     ask.add_argument("-k", type=int, default=5, help="how many chunks to retrieve")

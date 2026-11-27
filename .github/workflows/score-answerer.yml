@@ -1,0 +1,86 @@
+name: Score a model answerer
+
+# Scores the agent over the whole question set with a model on OpenRouter (the
+# OPENROUTER_MODEL repository variable, or the default free model). Free models allow 50
+# requests a day, so one run may stop partway. Each run saves the questions it scored in
+# the Actions cache, and the next run (a re-run of this workflow, a push to this branch,
+# or a manual dispatch once this file is on main) asks only the rest. When a run reports
+# "scored 61 of 61", the result file in its artifact is complete.
+#
+# The corpus date is pinned, so runs on different days score the same text.
+
+on:
+  push:
+    branches: [score-openrouter]
+  workflow_dispatch:
+    inputs:
+      max_requests:
+        description: "Stop before sending more than this many requests"
+        default: "45"
+
+concurrency:
+  group: score-answerer
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash  # with pipefail, so a failed score is not hidden by tee
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+      CORPUS_DATE: "2026-11-01"
+      MAX_REQUESTS: ${{ inputs.max_requests || '45' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the API key is set
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::Set the OPENROUTER_API_KEY repository secret to score a model."
+            exit 1
+          fi
+      - run: pip install -e '.[fastembed]'
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/fastembed
+          key: fastembed-bge-small-en-v1.5
+      - name: Build the corpus from eCFR as of ${{ env.CORPUS_DATE }}
+        run: policy-assistant corpus build --date "$CORPUS_DATE" --out data/corpus
+      - name: Index it in Qdrant
+        run: policy-assistant index build --corpus data/corpus --qdrant data/qdrant
+      - name: Restore the questions scored so far
+        uses: actions/cache/restore@v4
+        with:
+          path: results/
+          key: agent-score-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: agent-score-v1-
+      - name: Score the agent, picking up where the last run stopped
+        run: |
+          policy-assistant eval agent --answerer openrouter --qdrant data/qdrant \
+            --resume --max-requests "$MAX_REQUESTS" 2>&1 | tee score.log
+          policy-assistant eval report results/agent__*.json | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -E "^(scored|stopped)" score.log | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: List the questions the model's reply could not be read for
+        run: |
+          jq -r '.questions[] | select(.status == "error") | "\(._id): \(.reason)"' \
+            results/agent__*.json
+      - name: Save the questions scored so far
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: results/
+          key: agent-score-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-score
+          path: results/
+          retention-days: 90

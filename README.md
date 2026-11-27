@@ -193,6 +193,21 @@ question counts as correct when it refuses. CI runs it with the extractive answe
 only, since the model answerers are billed per question (Claude) or limited to a few
 requests a day (OpenRouter's free models).
 
+A model answerer can be scored over several days. `eval agent` saves the result after
+every question; `--resume` keeps the questions already in `--out` and asks only the rest,
+and `--max-requests N` stops before an OpenRouter model would go over N requests. The run
+also stops, keeping what it scored, when OpenRouter says the day's free requests are used
+up. A malformed reply counts as a wrong answer (an `error` row). The result says whether
+it is `complete` and, if not, why it stopped; `eval report` marks a partial one.
+
+```bash
+policy-assistant eval agent --answerer openrouter --resume --max-requests 45
+```
+
+The [Score a model answerer](.github/workflows/score-answerer.yml) workflow does this in
+CI, keeping progress in the Actions cache between runs, on a corpus pinned to one eCFR
+date so every day scores the same text.
+
 ### Results
 
 From [CI run 46043610493](https://github.com/HarshitGadge/grounded-policy-assistant/actions/runs/46043610493)
@@ -223,8 +238,26 @@ The agent with the extractive answerer (no model), k = 5:
 
 For 48 of the 49 in-scope questions (98%), the five retrieved chunks include one from
 the labeled section, so most of the gap to 100% is the answerer, which only matches
-words. Model answerers can be scored with the same command; their numbers will be
-added here once they come from a run in this repository.
+words.
+
+The agent with a model on OpenRouter's free tier, `nvidia/nemotron-3.5-super-vl:free`
+(the default), k = 5, from two runs of the Score a model answerer workflow:
+[46047415274](https://github.com/HarshitGadge/grounded-policy-assistant/actions/runs/46047415274)
+(commit cc42daa) scored the first 44 questions and
+[46050443255](https://github.com/HarshitGadge/grounded-policy-assistant/actions/runs/46050443255)
+(commit ae4e878, same code, only the workflow changed) the other 17. The result file is
+the second run's `agent-score` artifact. That workflow pins the corpus to eCFR as of
+2026-11-01, while the extractive row above used the corpus of its own run, so the
+retrieved chunks are not exactly the same:
+
+| answerer | in-scope correct | answered | correct when answered | out-of-scope refused |
+|---|---|---|---|---|
+| openrouter:nvidia/nemotron-3.5-super-vl:free | 80% (39 of 49) | 80% | 100% | 92% (11 of 12) |
+
+Every answer the model gave cited the labeled section. Of the 10 in-scope questions it
+missed, it refused 6 and failed on 4: on those (q18, q20, q25, q34) the reply hit the
+4,000-token cap, and they count as wrong. The five retrieved chunks included one from
+the labeled section for 44 of the 49 in-scope questions (90%) in these runs.
 
 ## Tests
 

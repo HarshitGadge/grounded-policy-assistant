@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from policy_assistant import cli, corpus
@@ -68,3 +70,26 @@ def test_index_build_and_search(tmp_path, offline, capsys):
 def test_search_without_an_index(tmp_path):
     with pytest.raises(SystemExit, match="run policy-assistant index build"):
         cli.main(["search", "anything", "--qdrant", str(tmp_path / "none")])
+
+
+def test_ask_with_the_extractive_answerer(tmp_path, offline, capsys):
+    out = tmp_path / "corpus"
+    qdrant = str(tmp_path / "qdrant")
+    cli.main(["corpus", "build", "--date", "2026-01-01", "--part", "99:9999", "--out", str(out)])
+    cli.main(["index", "build", "--corpus", str(out), "--qdrant", qdrant, "--model", "hashing-512"])
+    capsys.readouterr()
+    ask = ["ask", "--answerer", "extractive", "--qdrant", qdrant]
+    assert cli.main([*ask, "What is a preauthorized transfer?"]) == 0
+    printed = capsys.readouterr().out
+    assert "Preauthorized transfer means" in printed
+    assert "[1] 99 CFR 9999.2(i)" in printed
+
+    assert cli.main([*ask, "--json", "What is the capital of France?"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "refused"
+    assert data["answerer"] == "extractive"
+
+
+def test_ask_without_an_index(tmp_path):
+    with pytest.raises(SystemExit, match="no index"):
+        cli.main(["ask", "q", "--answerer", "extractive", "--qdrant", str(tmp_path / "none")])

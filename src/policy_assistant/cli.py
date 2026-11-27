@@ -85,7 +85,8 @@ def _index_build(args: argparse.Namespace) -> int:
     return 0
 
 
-def _search(args: argparse.Namespace) -> int:
+def _open_existing(args: argparse.Namespace):
+    """The built index, searched with the encoder that built it (or ``--model``)."""
     from .index import PolicyIndex, collection_info, open_client
 
     if not args.url and not Path(args.qdrant).exists():
@@ -96,15 +97,38 @@ def _search(args: argparse.Namespace) -> int:
         client.close()
         where = args.url or args.qdrant
         raise SystemExit(f"no collection {args.collection!r} in {where}; run index build first")
-    model = args.model or info.get("encoder", DEFAULT_MODEL)
-    index = PolicyIndex(client, make_encoder(model), args.collection)
+    model = getattr(args, "model", None) or info.get("encoder", DEFAULT_MODEL)
+    return PolicyIndex(client, make_encoder(model), args.collection)
+
+
+def _search(args: argparse.Namespace) -> int:
+    index = _open_existing(args)
     try:
         passages = index.search(args.question, k=args.k, parts=args.part or None)
     finally:
-        client.close()
+        index.client.close()
     for rank, p in enumerate(passages, 1):
         print(f"{rank}. [{p.citation}] score {p.score:.3f}")
         print(f"   {p.text[:300].replace(chr(10), ' ')}")
+    return 0
+
+
+def _ask(args: argparse.Namespace) -> int:
+    from .agent import PolicyAgent
+    from .answerers import make_answerer
+
+    options = {"effort": args.effort} if args.answerer.startswith("claude") else {}
+    answerer = make_answerer(args.answerer, **options)
+    index = _open_existing(args)
+    try:
+        agent = PolicyAgent(index, answerer, k=args.k, min_score=args.min_score)
+        answer = agent.ask(args.question, parts=args.part or None)
+    finally:
+        index.client.close()
+    if args.json:
+        print(json.dumps(answer.to_dict(), indent=2))
+    else:
+        print(answer.render())
     return 0
 
 
@@ -150,6 +174,23 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--model", help="encoder (default: the one that built the index)")
     _qdrant_args(search)
     search.set_defaults(func=_search)
+
+    ask = sub.add_parser(
+        "ask", help="answer a question with citations, or refuse if the text doesn't answer it"
+    )
+    ask.add_argument("question")
+    ask.add_argument(
+        "--answerer",
+        default="claude",
+        help="claude (default, needs ANTHROPIC_API_KEY), claude:<model id>, or extractive",
+    )
+    ask.add_argument("--effort", default="medium", help="Claude's effort level")
+    ask.add_argument("-k", type=int, default=5, help="how many chunks to retrieve")
+    ask.add_argument("--min-score", type=float, default=0.0, help="drop chunks scoring lower")
+    ask.add_argument("--part", action="append", help="only this CFR part, e.g. 1005")
+    ask.add_argument("--json", action="store_true", help="print the answer as JSON")
+    _qdrant_args(ask)
+    ask.set_defaults(func=_ask)
     return parser
 
 

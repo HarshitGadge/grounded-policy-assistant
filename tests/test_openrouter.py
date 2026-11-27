@@ -106,7 +106,9 @@ def test_falls_back_to_json_in_the_prompt_once(monkeypatch):
     no_endpoint = Resp(404, {"error": {"code": 404, "message": "No endpoints found"}})
     reply = ok("Here it is:\n```json\n" + json.dumps(ANSWER) + "\n```")
     answerer, http, _ = make(no_endpoint, reply, ok(ANSWER))
+    assert answerer.last_mode is None
     assert answerer.draft("q", PASSAGES).answerable
+    assert answerer.last_mode == "prompt"
     first, second = http.posts[0].body, http.posts[1].body
     assert "response_format" in first
     assert "response_format" not in second and "provider" not in second
@@ -128,6 +130,14 @@ def test_prompt_only_never_sends_a_schema_format():
     answerer, http, _ = make(ok(ANSWER), structured=False)
     answerer.draft("q", PASSAGES)
     assert "response_format" not in http.posts[0].body
+    assert answerer.last_mode == "prompt"
+
+
+def test_structured_reply_is_recorded():
+    answerer, http, _ = make(ok(ANSWER))
+    answerer.draft("q", PASSAGES)
+    assert "response_format" in http.posts[0].body
+    assert answerer.last_mode == "structured"
 
 
 def test_retries_rate_limits_then_gives_up():

@@ -104,3 +104,19 @@ def test_ask_openrouter_without_a_key(tmp_path, monkeypatch):
 def test_ask_reports_an_unknown_answerer(tmp_path):
     with pytest.raises(SystemExit, match="unknown answerer"):
         cli.main(["ask", "q", "--answerer", "gpt", "--qdrant", str(tmp_path / "none")])
+
+
+def test_report_mode(capsys):
+    class Answerer:
+        name = "openrouter:some/model"
+        last_mode = "structured"
+
+    cli._report_mode(Answerer())
+    assert "used structured outputs" in capsys.readouterr().err
+    Answerer.last_mode = "prompt"
+    cli._report_mode(Answerer())
+    assert "JSON asked for in the prompt" in capsys.readouterr().err
+    Answerer.last_mode = None
+    cli._report_mode(Answerer())
+    cli._report_mode(object())
+    assert capsys.readouterr().err == ""

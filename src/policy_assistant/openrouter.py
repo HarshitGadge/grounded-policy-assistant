@@ -83,6 +83,9 @@ class OpenRouterAnswerer:
         self.model = model or os.environ.get("OPENROUTER_MODEL") or DEFAULT_OPENROUTER_MODEL
         self.name = f"openrouter:{self.model}"
         self.structured = structured
+        # How the last draft was asked for: "structured" (response_format) or "prompt"
+        # (JSON asked for in the system prompt). None before the first draft.
+        self.last_mode: str | None = None
         self.max_tokens = max_tokens
         self.retries = retries
         self.sleep = sleep
@@ -124,7 +127,9 @@ class OpenRouterAnswerer:
             if not (structured and self.structured == "auto" and err.status in _NO_STRUCTURED):
                 raise
             self.structured = False  # this model has no structured-output provider
+            structured = False
             data = self._post(self.request(question, passages, feedback, structured=False))
+        self.last_mode = "structured" if structured else "prompt"
         return self._read(data, passages)
 
     def _post(self, body: dict) -> dict:

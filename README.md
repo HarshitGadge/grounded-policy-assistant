@@ -192,7 +192,34 @@ question counts as correct when it refuses. CI runs it with the extractive answe
 only, since the model answerers are billed per question (Claude) or limited to a few
 requests a day (OpenRouter's free models).
 
-Results appear here once CI has produced them.
+### Results
+
+From [CI run 46038100221](https://github.com/HarshitGadge/grounded-policy-assistant/actions/runs/46038100221)
+(commit e56986d), on the default corpus built from eCFR in that run. The result files are
+the run's `results` artifact. 95% bootstrap intervals are in parentheses.
+
+Retrieval, scored by RAGBench on the 49 in-scope questions (40 sections, 1,050 relevant
+chunks in all, 3 to 187 per question):
+
+| retriever | nDCG@10 | recall@10 | recall@100 | MRR@10 | p50 ms |
+|---|---|---|---|---|---|
+| BM25 (RAGBench's) | 0.4505 (0.375 to 0.530) | 0.2634 (0.211 to 0.320) | 0.5966 (0.527 to 0.667) | 0.6872 (0.577 to 0.790) | 0.75 |
+| Qdrant, bge-small-en-v1.5 | 0.5894 (0.526 to 0.653) | 0.3595 (0.294 to 0.427) | 0.7056 (0.637 to 0.770) | 0.8714 (0.785 to 0.946) | 12.87 |
+
+`ragbench compare` (paired bootstrap, 49 questions): dense retrieval beats BM25 on
+nDCG@10 by +0.1389 (95% CI +0.0914 to +0.1900), on recall@10 by +0.0961 (+0.0483 to
++0.1469) and on MRR@10 by +0.1842 (+0.0960 to +0.2729), all significant.
+
+The agent with the extractive answerer (no model), k = 5:
+
+| answerer | in-scope correct | answered | correct when answered | out-of-scope refused |
+|---|---|---|---|---|
+| extractive | 67% | 80% | 85% | 83% |
+
+For 48 of the 49 in-scope questions (98%), the five retrieved chunks include one from
+the labeled section, so most of the gap to 100% is the answerer, which only matches
+words. Model answerers can be scored with the same command; their numbers will be
+added here once they come from a run in this repository.
 
 ## Tests
 

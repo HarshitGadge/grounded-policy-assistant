@@ -22,6 +22,10 @@ concurrency:
   group: score-answerer
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash  # with pipefail, so a failed score is not hidden by tee
+
 jobs:
   score:
     runs-on: ubuntu-latest
@@ -64,6 +68,10 @@ jobs:
             --resume --max-requests "$MAX_REQUESTS" 2>&1 | tee score.log
           policy-assistant eval report results/agent__*.json | tee -a "$GITHUB_STEP_SUMMARY"
           grep -E "^(scored|stopped)" score.log | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: List the questions the model's reply could not be read for
+        run: |
+          jq -r '.questions[] | select(.status == "error") | "\(._id): \(.reason)"' \
+            results/agent__*.json
       - name: Save the questions scored so far
         if: always()
         uses: actions/cache/save@v4

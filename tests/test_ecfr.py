@@ -94,6 +94,18 @@ def test_fetch_retries_when_busy(monkeypatch):
     assert "grounded-policy-assistant" in ecfr.USER_AGENT
 
 
+def test_fetch_asks_for_xml(monkeypatch):
+    seen = {}
+
+    def urlopen(req, timeout):
+        seen.update({k.lower(): v for k, v in req.header_items()})
+        return FakeResponse(b"<DIV5/>")
+
+    monkeypatch.setattr(ecfr.urllib.request, "urlopen", urlopen)
+    ecfr.fetch_part(12, "1005", "2026-01-01")
+    assert seen["accept"] == "application/xml"
+
+
 def test_fetch_does_not_retry_not_found(monkeypatch):
     calls = []
 

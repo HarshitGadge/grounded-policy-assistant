@@ -54,8 +54,9 @@ def part_url(title: int, part: str, date: str) -> str:
     return f"{API}/full/{date}/title-{title}.xml?part={part}"
 
 
-def _get(url: str, timeout: float, attempts: int = 4) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _get(url: str, timeout: float, accept: str, attempts: int = 4) -> bytes:
+    # eCFR answers 406 Not Acceptable unless the Accept header names the format asked for.
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": accept})
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -73,12 +74,12 @@ def _get(url: str, timeout: float, attempts: int = 4) -> bytes:
 
 def fetch_part(title: int, part: str, date: str, timeout: float = 120) -> bytes:
     """Download one part as eCFR XML, as it read on `date` (YYYY-MM-DD)."""
-    return _get(part_url(title, part, date), timeout)
+    return _get(part_url(title, part, date), timeout, "application/xml")
 
 
 def latest_date(title: int, timeout: float = 60) -> str:
     """The newest date eCFR has text for in `title`."""
-    titles = json.loads(_get(f"{API}/titles.json", timeout))["titles"]
+    titles = json.loads(_get(f"{API}/titles.json", timeout, "application/json"))["titles"]
     for t in titles:
         if t["number"] == title:
             return t["up_to_date_as_of"]

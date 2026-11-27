@@ -184,7 +184,8 @@ def content_words(text: str) -> set[str]:
 
 
 def sentences(text: str) -> list[str]:
-    return [s.strip() for s in _SENTENCE.split(text) if s.strip()]
+    """Split at line breaks (chunks keep one paragraph per line) and sentence ends."""
+    return [s.strip() for line in text.splitlines() for s in _SENTENCE.split(line) if s.strip()]
 
 
 class ExtractiveAnswerer:

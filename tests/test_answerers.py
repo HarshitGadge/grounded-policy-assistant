@@ -164,6 +164,7 @@ def test_content_words_and_sentences():
     assert content_words("What are the Business days?") == {"business", "day"}
     assert content_words("the process") == {"process"}
     assert sentences("One. (b) Two; Three: four.") == ["One.", "(b) Two;", "Three: four."]
+    assert sentences("(d)(1) First or\n(d)(2) second.") == ["(d)(1) First or", "(d)(2) second."]
 
 
 def test_extractive_quotes_the_best_sentence():

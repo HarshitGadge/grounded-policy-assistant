@@ -64,7 +64,8 @@ def _get(url: str, timeout: float, accept: str, attempts: int = 4) -> bytes:
         except urllib.error.HTTPError as err:
             # eCFR answers 429 when it is busy; anything else is a real error.
             if (err.code != 429 and err.code < 500) or attempt == attempts - 1:
-                raise
+                detail = err.read()[:500].decode("utf-8", "replace") if err.fp else ""
+                raise RuntimeError(f"eCFR answered {err.code} for {url}: {detail}") from err
         except urllib.error.URLError:
             if attempt == attempts - 1:
                 raise

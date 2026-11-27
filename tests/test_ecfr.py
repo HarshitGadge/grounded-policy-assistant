@@ -114,6 +114,6 @@ def test_fetch_does_not_retry_not_found(monkeypatch):
         raise urllib.error.HTTPError(req.full_url, 404, "missing", {}, None)
 
     monkeypatch.setattr(ecfr.urllib.request, "urlopen", urlopen)
-    with pytest.raises(urllib.error.HTTPError):
+    with pytest.raises(RuntimeError, match="eCFR answered 404"):
         ecfr.fetch_part(12, "1005", "2026-01-01")
     assert len(calls) == 1

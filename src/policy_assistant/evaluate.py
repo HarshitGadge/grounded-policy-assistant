@@ -18,7 +18,7 @@ import json
 import re
 import shutil
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -91,40 +91,112 @@ def build_eval(corpus: str | Path, out: str | Path, questions: Sequence[dict] | 
     }
 
 
-def evaluate_agent(agent, questions: Sequence[dict], progress=None) -> dict:
+def evaluate_agent(
+    agent,
+    questions: Sequence[dict],
+    progress=None,
+    *,
+    done: Sequence[dict] = (),
+    on_row: Callable[[dict], None] | None = None,
+    can_ask: Callable[[], bool] | None = None,
+    errors: tuple[type[BaseException], ...] = (),
+    halt: Callable[[BaseException], bool] | None = None,
+) -> dict:
     """Ask the agent every question; score answers and refusals.
 
     For an in-scope question, the agent is *correct* when it answers and at least one
     cited chunk answers the labeled section. For an out-of-scope question, it is correct
     when it refuses.
+
+    A run can stop partway and be picked up later:
+
+    * ``done`` holds rows already scored (from an earlier run); those questions are not
+      asked again.
+    * ``on_row(result)`` is called with the result so far after each new row, so it can
+      be saved as the run goes.
+    * ``can_ask()`` is checked before each question; when it returns False the run stops,
+      for example because a request budget is spent.
+    * An exception in ``errors`` raised while asking is recorded as an ``error`` row that
+      counts as wrong, unless ``halt(exc)`` is true: then the run stops without a row for
+      that question, so a later run asks it again.
+
+    The result says whether every question was scored (``complete``) and, if not, why it
+    stopped (``stopped``).
     """
-    rows = []
-    for i, q in enumerate(questions, 1):
+    ids = {q["_id"] for q in questions}
+    rows = {r["_id"]: r for r in done if r["_id"] in ids}
+    stopped = None
+    todo = [q for q in questions if q["_id"] not in rows]
+    for i, q in enumerate(todo, 1):
+        if can_ask is not None and not can_ask():
+            stopped = "the request budget is spent"
+            break
         t0 = time.perf_counter()
-        answer = agent.ask(q["text"])
-        seconds = time.perf_counter() - t0
-        section = q.get("section")
-        cited = answer.sources()
-        row = {
-            "_id": q["_id"],
-            "question": q["text"],
-            "section": section,
-            "status": answer.status,
-            "reason": answer.reason,
-            "attempts": answer.attempts,
-            "citations": [p.citation for p in cited],
-            "retrieved_relevant": bool(section)
-            and any(answers_section(p, section) for p in answer.passages),
-            "seconds": round(seconds, 3),
-        }
-        if section:
-            row["correct"] = answer.answered and any(answers_section(p, section) for p in cited)
+        try:
+            answer = agent.ask(q["text"])
+        except errors as err:
+            if halt is not None and halt(err):
+                stopped = str(err)
+                break
+            rows[q["_id"]] = _error_row(q, err, time.perf_counter() - t0)
         else:
-            row["correct"] = not answer.answered
-        rows.append(row)
+            rows[q["_id"]] = _row(q, answer, time.perf_counter() - t0)
+        if on_row is not None:
+            on_row(_result(questions, rows, None))
         if progress:
-            progress(i, len(questions))
-    return {"summary": summarize(rows), "questions": rows}
+            progress(i, len(todo))
+    return _result(questions, rows, stopped)
+
+
+def _row(q: dict, answer, seconds: float) -> dict:
+    section = q.get("section")
+    cited = answer.sources()
+    row = {
+        "_id": q["_id"],
+        "question": q["text"],
+        "section": section,
+        "status": answer.status,
+        "reason": answer.reason,
+        "attempts": answer.attempts,
+        "citations": [p.citation for p in cited],
+        "retrieved_relevant": bool(section)
+        and any(answers_section(p, section) for p in answer.passages),
+        "seconds": round(seconds, 3),
+    }
+    if section:
+        row["correct"] = answer.answered and any(answers_section(p, section) for p in cited)
+    else:
+        row["correct"] = not answer.answered
+    return row
+
+
+def _error_row(q: dict, err: BaseException, seconds: float) -> dict:
+    """A question the answerer failed on (a malformed reply, say). It counts as wrong."""
+    return {
+        "_id": q["_id"],
+        "question": q["text"],
+        "section": q.get("section"),
+        "status": "error",
+        "reason": f"{type(err).__name__}: {err}"[:300],
+        "attempts": 0,
+        "citations": [],
+        "retrieved_relevant": False,
+        "seconds": round(seconds, 3),
+        "correct": False,
+    }
+
+
+def _result(questions: Sequence[dict], rows: Mapping[str, dict], stopped) -> dict:
+    ordered = [rows[q["_id"]] for q in questions if q["_id"] in rows]
+    complete = len(ordered) == len(questions)
+    return {
+        "summary": summarize(ordered),
+        "complete": complete,
+        "scored": len(ordered),
+        "total": len(questions),
+        "stopped": None if complete else stopped,
+        "questions": ordered,
+    }
 
 
 def summarize(rows: Sequence[dict]) -> dict:
@@ -143,6 +215,7 @@ def summarize(rows: Sequence[dict]) -> dict:
         "correct_when_answered": rate([r for r in answered if r["correct"]], answered),
         "relevant_retrieved": rate([r for r in inscope if r["retrieved_relevant"]], inscope),
         "refused_out_of_scope": rate([r for r in oos if r["correct"]], oos),
+        "errors": sum(r["status"] == "error" for r in rows),
     }
 
 
@@ -155,8 +228,11 @@ def markdown_summary(results: Sequence[dict]) -> str:
     lines = []
     for res in results:
         s = res["summary"]
+        name = res["answerer"]
+        if res.get("complete") is False:
+            name += f" (partial, {res['scored']} of {res['total']})"
         lines.append(
-            f"| {res['answerer']} | {res['k']} | {_pct(s['correct_in_scope'])} "
+            f"| {name} | {res['k']} | {_pct(s['correct_in_scope'])} "
             f"| {_pct(s['answered_in_scope'])} | {_pct(s['correct_when_answered'])} "
             f"| {_pct(s['refused_out_of_scope'])} |"
         )

@@ -104,6 +104,71 @@ def test_evaluate_agent_scores_answers_and_refusals(index):
     assert extractive["summary"]["refused_out_of_scope"] == 1.0
 
 
+class Flaky:
+    """Cites the top passage, but fails on chosen questions."""
+
+    name = "flaky"
+
+    def __init__(self, fail):
+        self.fail = fail  # question text -> the exception to raise
+        self.asked = []
+
+    def draft(self, question, passages, feedback=""):
+        self.asked.append(question)
+        if question in self.fail:
+            raise self.fail[question]
+        return Draft(True, (Claim("Something.", (passages[0].chunk_id,)),))
+
+
+class Stop(Exception):
+    pass
+
+
+def test_evaluate_agent_stops_and_resumes(index):
+    q2 = QUESTIONS[1]["text"]
+    answerer = Flaky({q2: Stop("rate limited")})
+    saved = []
+    first = evaluate_agent(
+        PolicyAgent(index, answerer, k=3),
+        QUESTIONS,
+        on_row=saved.append,
+        errors=(Stop,),
+        halt=lambda err: True,
+    )
+    assert not first["complete"] and first["stopped"] == "rate limited"
+    assert (first["scored"], first["total"]) == (1, 3)
+    assert [r["_id"] for r in first["questions"]] == ["q1"]
+    assert len(saved) == 1
+
+    answerer = Flaky({})
+    second = evaluate_agent(PolicyAgent(index, answerer, k=3), QUESTIONS, done=first["questions"])
+    assert second["complete"] and second["stopped"] is None
+    assert [r["_id"] for r in second["questions"]] == ["q1", "q2", "oos1"]
+    assert second["questions"][0] is first["questions"][0]
+    assert QUESTIONS[0]["text"] not in answerer.asked
+
+
+def test_evaluate_agent_records_errors_and_keeps_to_a_budget(index):
+    q1 = QUESTIONS[0]["text"]
+    answerer = Flaky({q1: ValueError("no JSON object in the reply")})
+    result = evaluate_agent(
+        PolicyAgent(index, answerer, k=3), QUESTIONS, errors=(ValueError,), halt=lambda e: False
+    )
+    row = result["questions"][0]
+    assert row["status"] == "error" and not row["correct"]
+    assert "no JSON object" in row["reason"]
+    assert result["summary"]["errors"] == 1 and result["complete"]
+
+    asked = iter([True, False])
+    result = evaluate_agent(
+        PolicyAgent(index, Flaky({}), k=3), QUESTIONS, can_ask=lambda: next(asked)
+    )
+    assert result["scored"] == 1 and result["stopped"] == "the request budget is spent"
+
+    with pytest.raises(ValueError):  # errors not listed are not swallowed
+        evaluate_agent(PolicyAgent(index, Flaky({q1: ValueError("x")}), k=3), QUESTIONS)
+
+
 def test_summarize_handles_no_answers():
     rows = [
         {"section": "1.1", "status": "refused", "correct": False, "retrieved_relevant": True},
@@ -116,6 +181,8 @@ def test_summarize_handles_no_answers():
     assert s["refused_out_of_scope"] == 1.0
     table = markdown_summary([{"answerer": "x", "k": 5, "summary": s}])
     assert "| x | 5 | 0% | 0% | - | 100% |" in table
+    partial = {"answerer": "x", "k": 5, "summary": s, "complete": False, "scored": 2}
+    assert "| x (partial, 2 of 61) |" in markdown_summary([{**partial, "total": 61}])
 
 
 def test_eval_commands(corpus, tmp_path, capsys):
@@ -152,3 +219,64 @@ def test_eval_commands(corpus, tmp_path, capsys):
     capsys.readouterr()
     cli.main(["eval", "report", str(out)])
     assert "| extractive | 3 |" in capsys.readouterr().out
+
+
+def test_eval_agent_resumes(corpus, tmp_path, capsys, monkeypatch):
+    qfile = tmp_path / "questions.jsonl"
+    qfile.write_text("".join(json.dumps(q) + "\n" for q in QUESTIONS))
+    qdrant = str(tmp_path / "qdrant")
+    cli.main(
+        ["index", "build", "--corpus", str(corpus), "--qdrant", qdrant, "--model", "hashing-512"]
+    )
+    out = tmp_path / "agent.json"
+    base = ["eval", "agent", "--questions", str(qfile), "--qdrant", qdrant, "--out", str(out)]
+    assert cli.main([*base, "-k", "3", "--limit", "1"]) == 0
+    first = json.loads(out.read_text())
+    assert first["scored"] == 1 and first["complete"]  # complete for the questions it was given
+    assert first["corpus_date"] == "2026-01-01"
+
+    assert cli.main([*base, "-k", "3", "--resume"]) == 0
+    second = json.loads(out.read_text())
+    assert second["complete"] and second["scored"] == 3
+    assert second["questions"][0] == first["questions"][0]
+    assert "resuming: 1 questions already scored" in capsys.readouterr().err
+
+    with pytest.raises(SystemExit, match="different k"):
+        cli.main([*base, "-k", "2", "--resume"])
+    with pytest.raises(SystemExit, match="does not count requests"):
+        cli.main([*base, "-k", "3", "--max-requests", "5"])
+
+
+def test_eval_agent_keeps_to_max_requests(corpus, tmp_path, capsys, monkeypatch):
+    qfile = tmp_path / "questions.jsonl"
+    qfile.write_text("".join(json.dumps(q) + "\n" for q in QUESTIONS))
+    qdrant = str(tmp_path / "qdrant")
+    cli.main(
+        ["index", "build", "--corpus", str(corpus), "--qdrant", qdrant, "--model", "hashing-512"]
+    )
+
+    class Counting(Flaky):
+        name = "openrouter:fake"
+
+        def __init__(self):
+            super().__init__({})
+            self.requests = 0
+
+        def draft(self, question, passages, feedback=""):
+            self.requests += 1
+            return super().draft(question, passages, feedback)
+
+    import policy_assistant.answerers as answerers
+
+    monkeypatch.setattr(answerers, "make_answerer", lambda name, **kw: Counting())
+    out = tmp_path / "agent.json"
+    args = ["eval", "agent", "--questions", str(qfile), "--qdrant", qdrant, "--out", str(out)]
+    # A question may take two requests (one retry), so with 3 allowed a third question,
+    # asked after 2 requests, might not fit and is left for later.
+    assert cli.main([*args, "-k", "3", "--max-requests", "3"]) == 0
+    saved = json.loads(out.read_text())
+    assert saved["answerer"] == "openrouter:fake"
+    assert (saved["scored"], saved["complete"]) == (2, False)
+    assert saved["stopped"] == "the request budget is spent"
+    err = capsys.readouterr().err
+    assert "scored 2 of 3 questions, 2 requests sent" in err and "--resume" in err

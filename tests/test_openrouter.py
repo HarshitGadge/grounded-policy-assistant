@@ -152,6 +152,29 @@ def test_retries_rate_limits_then_gives_up():
     assert sleeps == [5.0, 10.0]
 
 
+def test_daily_limit_is_not_retried_and_says_when_it_resets():
+    daily = Resp(
+        429,
+        {"error": {"message": "Rate limit exceeded: free-models-per-day. Add 10 credits"}},
+        headers={"x-ratelimit-reset": "1795392000000"},
+    )
+    answerer, http, sleeps = make(daily, retries=3)
+    with pytest.raises(RateLimited, match=r"resets 2026-11-23 00:00 UTC") as info:
+        answerer.draft("q", PASSAGES)
+    assert info.value.daily and info.value.reset == 1795392000.0
+    assert sleeps == [] and len(http.posts) == 1
+
+
+def test_requests_are_counted():
+    limited = Resp(429, {"error": {"message": "slow down"}})
+    answerer, _, _ = make(limited, ok(ANSWER), ok(ANSWER))
+    assert answerer.requests == 0
+    answerer.draft("q", PASSAGES)
+    assert answerer.requests == 2
+    answerer.draft("q", PASSAGES)
+    assert answerer.requests == 3
+
+
 def test_errors_are_reported():
     answerer, _, _ = make(Resp(401, {"error": {"code": 401, "message": "No auth"}}))
     with pytest.raises(OpenRouterError, match="401: No auth"):

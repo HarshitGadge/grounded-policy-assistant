@@ -20,6 +20,7 @@ import os
 import re
 import time
 from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
 from typing import Any
 
 from .agent import Draft
@@ -49,7 +50,19 @@ class OpenRouterError(RuntimeError):
 
 
 class RateLimited(OpenRouterError):
-    """OpenRouter kept answering 429 (free models allow only a few requests a day)."""
+    """OpenRouter kept answering 429 (free models allow only a few requests a day).
+
+    ``daily`` is True when the reply says the day's quota is used up, and ``reset`` is when
+    OpenRouter says the limit resets (seconds since the epoch), if it says.
+    """
+
+    def __init__(self, status: int, message: str, daily: bool = False, reset=None):
+        if reset is not None:
+            when = datetime.fromtimestamp(reset, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            message += f" (resets {when})"
+        super().__init__(status, message)
+        self.daily = daily
+        self.reset = reset
 
 
 class OpenRouterAnswerer:
@@ -86,6 +99,8 @@ class OpenRouterAnswerer:
         # How the last draft was asked for: "structured" (response_format) or "prompt"
         # (JSON asked for in the system prompt). None before the first draft.
         self.last_mode: str | None = None
+        # How many requests this answerer has sent, retries included.
+        self.requests = 0
         self.max_tokens = max_tokens
         self.retries = retries
         self.sleep = sleep
@@ -135,17 +150,21 @@ class OpenRouterAnswerer:
     def _post(self, body: dict) -> dict:
         for attempt in range(self.retries + 1):
             resp = self.client.post(OPENROUTER_URL, json=body, headers=self._headers)
+            self.requests += 1
             if resp.status_code == 200:
                 data = resp.json()
                 if "error" in data:  # some failures arrive with status 200
                     err = data["error"] or {}
                     raise OpenRouterError(int(err.get("code") or 502), _message(data))
                 return data
-            if resp.status_code in _RETRY and attempt < self.retries:
+            message = _message(_json(resp))
+            daily = resp.status_code == 429 and "per-day" in message
+            if resp.status_code in _RETRY and attempt < self.retries and not daily:
                 self.sleep(_wait(resp, attempt))
                 continue
-            kind = RateLimited if resp.status_code == 429 else OpenRouterError
-            raise kind(resp.status_code, _message(_json(resp)))
+            if resp.status_code == 429:
+                raise RateLimited(429, message, daily=daily, reset=_reset(resp))
+            raise OpenRouterError(resp.status_code, message)
         raise AssertionError("unreachable")
 
     def _read(self, data: dict, passages: Sequence[Passage]) -> Draft:
@@ -193,6 +212,14 @@ def _message(data: dict) -> str:
     if isinstance(err, dict):
         return str(err.get("message", "")) or "no message"
     return str(err or "no message")
+
+
+def _reset(resp) -> float | None:
+    """When the rate limit resets, from ``X-RateLimit-Reset`` (milliseconds since the epoch)."""
+    try:
+        return float(resp.headers.get("x-ratelimit-reset")) / 1000
+    except (TypeError, ValueError):
+        return None
 
 
 def _wait(resp, attempt: int) -> float:

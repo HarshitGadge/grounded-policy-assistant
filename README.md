@@ -192,6 +192,21 @@ question counts as correct when it refuses. CI runs it with the extractive answe
 only, since the model answerers are billed per question (Claude) or limited to a few
 requests a day (OpenRouter's free models).
 
+A model answerer can be scored over several days. `eval agent` saves the result after
+every question; `--resume` keeps the questions already in `--out` and asks only the rest,
+and `--max-requests N` stops before an OpenRouter model would go over N requests. The run
+also stops, keeping what it scored, when OpenRouter says the day's free requests are used
+up. A malformed reply counts as a wrong answer (an `error` row). The result says whether
+it is `complete` and, if not, why it stopped; `eval report` marks a partial one.
+
+```bash
+policy-assistant eval agent --answerer openrouter --resume --max-requests 45
+```
+
+The [Score a model answerer](.github/workflows/score-answerer.yml) workflow does this in
+CI, keeping progress in the Actions cache between runs, on a corpus pinned to one eCFR
+date so every day scores the same text.
+
 ### Results
 
 From [CI run 46038100221](https://github.com/HarshitGadge/grounded-policy-assistant/actions/runs/46038100221)

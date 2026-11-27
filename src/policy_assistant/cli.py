@@ -165,11 +165,11 @@ def _eval_build(args: argparse.Namespace) -> int:
     return 0
 
 
-def _eval_agent(args: argparse.Namespace) -> int:
+def _eval_agent(args):
     from .agent import PolicyAgent
     from .answerers import make_answerer
     from .evaluate import evaluate_agent, load_questions
-    from .openrouter import RateLimited
+    from .openrouter import OpenRouterError, RateLimited
 
     questions = load_questions(args.questions)[: args.limit]
     options = {"effort": args.effort} if args.answerer.startswith("claude") else {}
@@ -177,30 +177,79 @@ def _eval_agent(args: argparse.Namespace) -> int:
         answerer = make_answerer(args.answerer, **options)
     except ValueError as err:
         raise SystemExit(f"policy-assistant: {err}") from None
-    index = _open_existing(args)
-    try:
-        agent = PolicyAgent(index, answerer, k=args.k, min_score=args.min_score)
-        result = evaluate_agent(agent, questions)
-        info, chunks = index.info(), index.count()
-    except RateLimited as err:
-        raise SystemExit(f"policy-assistant: {err}") from None
-    finally:
-        index.client.close()
-    result = {
-        "answerer": answerer.name,
-        "k": args.k,
-        "min_score": args.min_score,
-        "encoder": info.get("encoder"),
-        "chunks": chunks,
-        **result,
-    }
+    if args.max_requests is not None and not hasattr(answerer, "requests"):
+        raise SystemExit(f"policy-assistant: {answerer.name} does not count requests")
     slug = re.sub(r"[^A-Za-z0-9.-]+", "_", answerer.name)
     out = Path(args.out or f"results/agent__{slug}.json")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    index = _open_existing(args)
+    try:
+        info, chunks = index.info(), index.count()
+        meta = {
+            "answerer": answerer.name,
+            "k": args.k,
+            "min_score": args.min_score,
+            "encoder": info.get("encoder"),
+            "corpus_date": info.get("corpus_date") or None,
+            "chunks": chunks,
+        }
+        done = _resume_rows(out, meta) if args.resume else []
+        agent = PolicyAgent(index, answerer, k=args.k, min_score=args.min_score)
+
+        def save(result):
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps({**meta, **result}, indent=2) + "\n", encoding="utf-8")
+
+        def can_ask():
+            # A question can take up to max_attempts requests; don't start one that
+            # might not fit in the budget.
+            spent = answerer.requests
+            return spent + agent.max_attempts <= args.max_requests
+
+        # A model's malformed reply counts as a wrong answer; a rate limit, a bad key or
+        # a model that isn't there stops the run, and a later --resume asks again.
+        recorded = (OpenRouterError, ValueError, RuntimeError)
+
+        def halt(err):
+            if isinstance(err, RateLimited):
+                return True
+            return isinstance(err, OpenRouterError) and err.status in (401, 402, 403, 404)
+
+        result = evaluate_agent(
+            agent,
+            questions,
+            done=done,
+            on_row=save,
+            can_ask=can_ask if args.max_requests is not None else None,
+            errors=recorded if answerer.name.startswith("openrouter:") else (),
+            halt=halt,
+        )
+    finally:
+        index.client.close()
+    save(result)
     print(json.dumps(result["summary"], indent=2))
+    requests = getattr(answerer, "requests", None)
+    sent = f", {requests} requests sent" if requests is not None else ""
+    print(f"scored {result['scored']} of {result['total']} questions{sent}", file=sys.stderr)
+    if not result["complete"]:
+        print(f"stopped: {result['stopped']}; run again with --resume", file=sys.stderr)
     print(f"wrote {out}", file=sys.stderr)
     return 0
+
+
+def _resume_rows(out: Path, meta: dict) -> list[dict]:
+    """The rows an earlier run of the same setup saved in ``out``, or none."""
+    if not out.exists():
+        return []
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    differ = [k for k in meta if saved.get(k) != meta[k]]
+    if differ:
+        raise SystemExit(
+            f"policy-assistant: {out} was scored with a different {', '.join(differ)}; "
+            "use another --out or delete it"
+        )
+    rows = saved.get("questions", [])
+    print(f"resuming: {len(rows)} questions already scored in {out}", file=sys.stderr)
+    return rows
 
 
 def _eval_report(args: argparse.Namespace) -> int:
@@ -288,6 +337,16 @@ def build_parser() -> argparse.ArgumentParser:
     eagent.add_argument("--questions", help="a questions.jsonl (default: the built-in set)")
     eagent.add_argument("--limit", type=int, help="only the first N questions")
     eagent.add_argument("--out", help="result JSON (default results/agent__<answerer>.json)")
+    eagent.add_argument(
+        "--resume",
+        action="store_true",
+        help="keep the questions already scored in --out and ask only the rest",
+    )
+    eagent.add_argument(
+        "--max-requests",
+        type=int,
+        help="stop before going over this many model requests (OpenRouter only)",
+    )
     _qdrant_args(eagent)
     eagent.set_defaults(func=_eval_agent)
 

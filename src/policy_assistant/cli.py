@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -131,11 +132,25 @@ def _ask(args: argparse.Namespace) -> int:
         raise SystemExit(f"policy-assistant: {err}") from None
     finally:
         index.client.close()
+    _report_mode(answerer)
     if args.json:
         print(json.dumps(answer.to_dict(), indent=2))
     else:
         print(answer.render())
     return 0
+
+
+def _report_mode(answerer) -> None:
+    """Say on stderr how an OpenRouter model was asked, so CI logs show it."""
+    mode = getattr(answerer, "last_mode", None)
+    if mode == "structured":
+        print(f"policy-assistant: {answerer.name} used structured outputs", file=sys.stderr)
+    elif mode == "prompt":
+        print(
+            f"policy-assistant: {answerer.name} has no structured-output provider; "
+            "it answered with JSON asked for in the prompt",
+            file=sys.stderr,
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:

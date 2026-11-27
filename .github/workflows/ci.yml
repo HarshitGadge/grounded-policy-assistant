@@ -67,11 +67,13 @@ jobs:
         run: |
           policy-assistant corpus stats data/corpus --show 5
           cat data/corpus/manifest.json
-      - name: Show eCFR's XML for one section and one interpretation
+      - name: Show eCFR's XML for a section and the interpretations
         run: |
           xml=$(ls data/corpus/raw/title-12-part-1005-*.xml)
           python scripts/inspect_ecfr.py "$xml" 1005.6
           python scripts/inspect_ecfr.py "$xml" "Supplement I to Part 1005"
+          python scripts/inspect_ecfr.py data/corpus/raw/title-12-part-1002-*.xml "Supplement I to Part 1002"
+          python scripts/inspect_ecfr.py data/corpus/raw/title-12-part-1030-*.xml "Supplement I to Part 1030"
       - name: Print sample citations
         run: |
           python - <<'PY'

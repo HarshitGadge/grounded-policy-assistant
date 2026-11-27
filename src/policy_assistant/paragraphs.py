@@ -105,6 +105,11 @@ class LabelTracker:
         self._place(level, marker)
         return self.label
 
+    def copy(self) -> LabelTracker:
+        other = LabelTracker()
+        other.stack = list(self.stack)
+        return other
+
     def _place(self, level: int, marker: str) -> None:
         while self.stack and self.stack[-1][0] >= level:
             self.stack.pop()

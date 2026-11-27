@@ -47,7 +47,9 @@ def test_notes_and_citations_are_skipped(part_xml):
 
 def test_appendix_subheads(part_xml):
     supp = sections(part_xml)["Supplement I to Part 9999"]
-    assert [p.subhead for p in supp.paragraphs] == ["2(a) Access Device"] * 2 + ["2(b)(1) Account"]
+    assert [p.subhead for p in supp.paragraphs][:3] == ["2(a) Access Device"] * 2 + [
+        "2(b)(1) Account"
+    ]
     assert all(p.label == () for p in supp.paragraphs)
 
 
@@ -130,3 +132,42 @@ def test_fetch_does_not_retry_not_found(monkeypatch):
     with pytest.raises(RuntimeError, match="eCFR answered 404"):
         ecfr.fetch_part(12, "1005", "2026-01-01")
     assert len(calls) == 1
+
+
+def test_inline_child_paragraphs_are_split(part_xml):
+    paras = sections(part_xml)["9999.3"].paragraphs
+    labelled = [(p.label, p.text) for p in paras]
+    assert (("b", "3"), "Notice to the institution.") in labelled
+    assert (
+        ("b", "3", "i"),
+        "Notice is given when the consumer takes reasonable steps to tell the institution.",
+    ) in labelled
+    assert (
+        ("b", "3", "ii"),
+        "Notice may be given in person, by telephone, or in writing.",
+    ) in labelled
+    assert (("c",), "Error resolution standards—") in labelled
+    assert (
+        ("c", "1"),
+        "Compliance program. An institution must keep written procedures.",
+    ) in labelled
+    assert (("c", "2"), "Records may be kept electronically.") in labelled  # FP-2 is read too
+
+
+def test_a_cross_reference_is_not_a_child(part_xml):
+    paras = sections(part_xml)["9999.3"].paragraphs
+    scope = [p for p in paras if p.text.startswith("Scope.")]
+    assert len(scope) == 1
+    assert scope[0].label == ("d",)
+    assert scope[0].text.endswith("(1) This sentence is not a child paragraph.")
+
+
+def test_interpretation_headings_in_every_style(part_xml):
+    supp = sections(part_xml)["Supplement I to Part 9999"]
+    by_start = {p.text[:12]: p.subhead for p in supp.paragraphs}
+    assert by_start["1. Trust agr"] == "2(b)(2)"  # "Paragraph 2(b)(2)"
+    assert by_start["1. Two busin"] == "3(b)(1) Timely notice."  # markers under "Section 9999.3"
+    assert (
+        by_start["1. Procedure"] == "3(c) Error resolution."
+    )  # heading and comment in one element
+    assert all(not p.text.startswith("Section ") for p in supp.paragraphs)

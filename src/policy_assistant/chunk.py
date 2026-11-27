@@ -52,26 +52,45 @@ _COMMENT_KEY = re.compile(r"^(\d+[a-z]?(?:\([0-9a-zA-Z]+\))*)(?=\s|$)")
 _COMMENT_NUMBER = re.compile(r"^(\d+)\.\s")
 
 
-def _comment_citation(subhead: str, group: list[Paragraph]) -> str | None:
+def _comment_numbers(section: Section) -> list[str | None]:
+    """The comment number each paragraph of an interpretation belongs to.
+
+    Comments are numbered 1., 2., ... under each heading, and their sub-points
+    (i., ii.) belong to the comment above them.
+    """
+    numbers: list[str | None] = []
+    current, subhead = None, None
+    for p in section.paragraphs:
+        if p.subhead != subhead:
+            current, subhead = None, p.subhead
+        m = _COMMENT_NUMBER.match(p.text)
+        if m:
+            current = m.group(1)
+        numbers.append(current)
+    return numbers
+
+
+def _comment_citation(subhead: str, numbers: list[str | None]) -> str | None:
     key = _COMMENT_KEY.match(subhead)
     if not key:
         return None
-    numbers = [m.group(1) for p in group if (m := _COMMENT_NUMBER.match(p.text))]
-    if not numbers:
-        return f"comment {key.group(1)}"
-    if numbers[0] == numbers[-1]:
-        return f"comment {key.group(1)}-{numbers[0]}"
-    return f"comments {key.group(1)}-{numbers[0]} through {key.group(1)}-{numbers[-1]}"
+    k = key.group(1)
+    found = [n for n in numbers if n]
+    if not found:
+        return f"comment {k}"
+    if found[0] == found[-1]:
+        return f"comment {k}-{found[0]}"
+    return f"comments {k}-{found[0]} through {k}-{found[-1]}"
 
 
-def _citation(section: Section, group: list[Paragraph]) -> str:
+def _citation(section: Section, group: list[Paragraph], numbers: list[str | None]) -> str:
     if section.kind == "appendix":
         base = f"{section.title} CFR part {section.part}, {section.number}"
         subhead = group[0].subhead
         if not subhead:
             return base
         if section.number.lower().startswith("supplement i "):
-            comment = _comment_citation(subhead, group)
+            comment = _comment_citation(subhead, numbers)
             if comment:
                 return f"{base}, {comment}"
         return f"{base}, {subhead}"
@@ -106,11 +125,16 @@ def _groups(section: Section, max_chars: int) -> list[list[Paragraph]]:
 
 def chunk_section(section: Section, date: str, max_chars: int = DEFAULT_MAX_CHARS) -> list[Chunk]:
     chunks = []
+    numbers = _comment_numbers(section)
+    index = {id(p): i for i, p in enumerate(section.paragraphs)}
     for position, group in enumerate(_groups(section, max_chars)):
         labels = [p.label for p in group]
-        citation = _citation(section, group)
+        citation = _citation(section, group, [numbers[index[id(p)]] for p in group])
         header = f"{citation} {section.heading}".strip()
-        body = "\n".join(_line(section, p) for p in group)
+        lines = [_line(section, p) for p in group]
+        if section.kind == "appendix" and group[0].subhead:
+            lines.insert(0, group[0].subhead)  # keeps the heading's words with the text
+        body = "\n".join(lines)
         text = f"{header}\n{body}"
         # The position keeps two chunks apart when a regulation repeats the same
         # wording under one heading, as model forms do.

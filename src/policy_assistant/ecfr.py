@@ -24,8 +24,9 @@ USER_AGENT = (
     "grounded-policy-assistant (+https://github.com/HarshitGadge/grounded-policy-assistant)"
 )
 
-# Elements that hold a paragraph of text inside a section or appendix.
-_TEXT_TAGS = {"P", "FP"}
+# Elements that hold a paragraph of text inside a section or appendix:
+# P, and flush paragraphs FP, FP-1, FP-2 and so on.
+_TEXT = re.compile(r"^(P|FP(-\d+)?)$")
 # Headings inside an appendix. eCFR writes them as HD1/HD2/HD3; some parts use HED or HD.
 _SUBHEAD = re.compile(r"^(HD\d*|HED)$")
 # Elements whose text is not regulation text: source notes, editorial notes, footnotes.
@@ -102,7 +103,7 @@ def _paragraph_elements(div: ET.Element):
     for child in div:
         if child.tag in _SKIP_TAGS:
             continue
-        if child.tag in _TEXT_TAGS:
+        if _TEXT.match(child.tag):
             yield "p", child
         elif _SUBHEAD.match(child.tag):
             yield "hd", child
@@ -125,6 +126,98 @@ def _heading(head: str, number: str) -> str:
     return re.sub(rf"^§+\s*{re.escape(number)}\s*", "", head).strip()
 
 
+# "(g) Error resolution standards—(1) Compliance program. ..." or
+# "(5) Notice to financial institution. (i) Notice is given ...": eCFR prints a
+# heading and the first child paragraph in one element.
+_INLINE_CHILD = re.compile(r"^([^()]{1,200}?(?:—|\.))\s*\(([0-9a-zA-Z]+)\)\s+(?=\S)")
+
+# Headings inside official interpretations (Supplement I). They name the rule
+# paragraph that the comments under them explain.
+_SUPPLEMENT_SECTION = re.compile(r"^Section\s+\d+\.(\d+[a-z]?)\b")
+_COMMENT_HEADING = re.compile(r"^(?:Paragraphs?\s+)?(\d+[a-z]?(?:\([0-9a-zA-Z]+\))+)(?:\s+(.*))?$")
+_MARKERS_HEADING = re.compile(r"^((?:\([0-9a-zA-Z]+\))+)\s+([A-Z].*)$")
+_MAX_HEADING = 150
+# "7(a) Individual accounts. 1. Open-end credit ..." in one element.
+_HEADING_THEN_COMMENT = re.compile(r"^(.{1,150}?\.)\s+(\d+\.\s.+)$")
+
+
+def _comment_heading(text: str, section_key: str | None) -> str | None:
+    """ "Paragraph 2(b)(2)" -> "2(b)(2)"; "(a)(1) Account opening." under section 4 ->
+    "4(a)(1) Account opening."; anything else -> None."""
+    if len(text) > _MAX_HEADING:
+        return None
+    m = _COMMENT_HEADING.match(text)
+    if m:
+        return f"{m.group(1)} {m.group(2) or ''}".strip()
+    m = _MARKERS_HEADING.match(text)
+    if m and section_key:
+        return f"{section_key}{m.group(1)} {m.group(2)}"
+    return None
+
+
+def _items(div: ET.Element) -> list[tuple[str, str]]:
+    items = [(kind, _text(el)) for kind, el in _paragraph_elements(div)]
+    return [(kind, t) for kind, t in items if t]
+
+
+def _parse_appendix(section: Section, div: ET.Element) -> None:
+    supplement = section.number.lower().startswith("supplement i ")
+    subhead, section_key = "", None
+    for kind, text in _items(div):
+        if supplement:
+            m = _SUPPLEMENT_SECTION.match(text)
+            if m:
+                subhead, section_key = text, m.group(1)
+                continue
+            joined = _HEADING_THEN_COMMENT.match(text)
+            if joined and (heading := _comment_heading(joined.group(1), section_key)):
+                subhead, text = heading, joined.group(2)
+            elif heading := _comment_heading(text, section_key):
+                subhead = heading
+                continue
+        if kind == "hd":
+            subhead = text
+        else:
+            section.paragraphs.append(Paragraph((), text, subhead))
+
+
+def _parse_section(section: Section, div: ET.Element) -> None:
+    elements = [t for kind, t in _items(div) if kind == "p"]
+    parsed = [leading_markers(t) for t in elements]
+    tracker = LabelTracker()
+    label: tuple[str, ...] = ()
+
+    def next_marker(i: int) -> str | None:
+        return next((m[0] for m, _ in parsed[i + 1 :] if m), None)
+
+    for i, (markers, rest) in enumerate(parsed):
+        if not markers:
+            # An unmarked paragraph continues the one above it.
+            section.paragraphs.append(Paragraph(label, elements[i]))
+            continue
+        for j, marker in enumerate(markers):
+            after = markers[j + 1] if j + 1 < len(markers) else next_marker(i)
+            try:
+                label = tracker.push(marker, after)
+            except ValueError:
+                break
+        inline = _INLINE_CHILD.match(rest)
+        if inline:
+            remainder = rest[inline.end() :]
+            trial = tracker.copy()
+            child = inline.group(2)
+            after = (leading_markers(remainder)[0] or [None])[0] or next_marker(i)
+            try:
+                child_label = trial.push(child, after)
+            except ValueError:
+                child_label = ()
+            if child_label == (*label, child):
+                section.paragraphs.append(Paragraph(label, inline.group(1)))
+                tracker, label, rest = trial, child_label, remainder
+        if rest:
+            section.paragraphs.append(Paragraph(label, rest))
+
+
 def parse_part(xml: bytes, title: int, part: str) -> list[Section]:
     """Parse eCFR XML for one part into sections with labelled paragraphs."""
     root = ET.fromstring(xml)
@@ -140,39 +233,10 @@ def parse_part(xml: bytes, title: int, part: str) -> list[Section]:
             if number is None or not number.startswith(f"{part}."):
                 continue
             section = Section(title, part, number, "section", _heading(head, number))
+            _parse_section(section, div)
         else:
             section = Section(title, part, div.get("N") or head, "appendix", head)
-
-        items = [(kind, _text(el)) for kind, el in _paragraph_elements(div)]
-        items = [(kind, t) for kind, t in items if t]
-        subheads, elements, subhead = [], [], ""
-        for kind, t in items:
-            if kind == "hd":
-                subhead = t
-            else:
-                subheads.append(subhead)
-                elements.append(t)
-        tracker = LabelTracker()
-        label: tuple[str, ...] = ()
-        parsed = [leading_markers(t) for t in elements]
-        for i, (markers, rest) in enumerate(parsed):
-            if section.kind == "section" and markers:
-                for j, marker in enumerate(markers):
-                    if j + 1 < len(markers):
-                        after = markers[j + 1]
-                    else:
-                        after = next((m[0] for m, _ in parsed[i + 1 :] if m), None)
-                    try:
-                        label = tracker.push(marker, after)
-                    except ValueError:
-                        break
-                text = rest
-            else:
-                # Appendix text and unmarked paragraphs keep the current label:
-                # an unmarked paragraph continues the one above it.
-                text = elements[i]
-            if text:
-                section.paragraphs.append(Paragraph(label, text, subheads[i]))
+            _parse_appendix(section, div)
         if section.paragraphs:
             sections.append(section)
     return sections

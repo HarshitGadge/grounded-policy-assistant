@@ -67,5 +67,6 @@ def test_known_paragraphs_are_found(records):
 def test_interpretations_are_cited_as_comments(records):
     comments = [r["citation"] for r in records if "Supplement I" in r["citation"]]
     assert comments
-    with_comment = [c for c in comments if ", comment" in c]
-    assert len(with_comment) / len(comments) > 0.8, comments[:20]
+    without = Counter(c for c in comments if ", comment" not in c)
+    share = 1 - sum(without.values()) / len(comments)
+    assert share > 0.8, without.most_common(25)

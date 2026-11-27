@@ -24,7 +24,7 @@ def test_citation_is_the_deepest_shared_paragraph(part_xml):
 
 
 def test_small_chunks_cite_deeper(part_xml):
-    cites = [c.citation for c in chunks_by_section(part_xml, max_chars=120)["9999.3"]]
+    cites = [c.citation for c in chunks_by_section(part_xml, max_chars=160)["9999.3"]]
     assert "99 CFR 9999.3(b)(1)" in cites
     assert "99 CFR 9999.3(b)(2)" in cites
 
@@ -52,12 +52,27 @@ def test_appendix_chunks_follow_headings(part_xml):
 
 def test_interpretations_are_cited_as_comments(part_xml):
     supp = chunks_by_section(part_xml)["Supplement I to Part 9999"]
+    base = "99 CFR part 9999, Supplement I to Part 9999"
     assert [c.citation for c in supp] == [
-        "99 CFR part 9999, Supplement I to Part 9999, comments 2(a)-1 through 2(a)-2",
-        "99 CFR part 9999, Supplement I to Part 9999, comment 2(b)(1)-1",
+        f"{base}, comments 2(a)-1 through 2(a)-2",
+        f"{base}, comment 2(b)(1)-1",
+        f"{base}, comment 2(b)(2)-1",
+        f"{base}, comments 3(b)(1)-1 through 3(b)(1)-2",
+        f"{base}, comment 3(c)-1",
     ]
+    assert (
+        supp[3].text.split("\n")[1] == "3(b)(1) Timely notice."
+    )  # the heading stays with the text
     small = chunks_by_section(part_xml, max_chars=60)["Supplement I to Part 9999"]
     assert small[0].citation.endswith("comment 2(a)-1")
+
+
+def test_sub_points_keep_their_comment_number(part_xml):
+    # "i." and "ii." belong to comment 1 even when a size split starts a chunk with them.
+    small = chunks_by_section(part_xml, max_chars=70)["Supplement I to Part 9999"]
+    sub_points = [c for c in small if c.text.split("\n")[2].startswith(("i.", "ii."))]
+    assert sub_points
+    assert all(c.citation.endswith("comment 3(b)(1)-1") for c in sub_points)
 
 
 def test_repeated_wording_gets_distinct_ids(part_xml):

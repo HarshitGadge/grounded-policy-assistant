@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -138,6 +139,64 @@ def _ask(args: argparse.Namespace) -> int:
     return 0
 
 
+def _eval_build(args: argparse.Namespace) -> int:
+    from .evaluate import build_eval, load_questions
+
+    questions = load_questions(args.questions)
+    try:
+        summary = build_eval(args.corpus, args.out, questions)
+    except ValueError as err:
+        raise SystemExit(f"policy-assistant: {err}") from None
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+def _eval_agent(args: argparse.Namespace) -> int:
+    from .agent import PolicyAgent
+    from .answerers import make_answerer
+    from .evaluate import evaluate_agent, load_questions
+    from .openrouter import RateLimited
+
+    questions = load_questions(args.questions)[: args.limit]
+    options = {"effort": args.effort} if args.answerer.startswith("claude") else {}
+    try:
+        answerer = make_answerer(args.answerer, **options)
+    except ValueError as err:
+        raise SystemExit(f"policy-assistant: {err}") from None
+    index = _open_existing(args)
+    try:
+        agent = PolicyAgent(index, answerer, k=args.k, min_score=args.min_score)
+        result = evaluate_agent(agent, questions)
+        info, chunks = index.info(), index.count()
+    except RateLimited as err:
+        raise SystemExit(f"policy-assistant: {err}") from None
+    finally:
+        index.client.close()
+    result = {
+        "answerer": answerer.name,
+        "k": args.k,
+        "min_score": args.min_score,
+        "encoder": info.get("encoder"),
+        "chunks": chunks,
+        **result,
+    }
+    slug = re.sub(r"[^A-Za-z0-9.-]+", "_", answerer.name)
+    out = Path(args.out or f"results/agent__{slug}.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result["summary"], indent=2))
+    print(f"wrote {out}", file=sys.stderr)
+    return 0
+
+
+def _eval_report(args: argparse.Namespace) -> int:
+    from .evaluate import markdown_summary
+
+    results = [json.loads(Path(p).read_text(encoding="utf-8")) for p in args.results]
+    print(markdown_summary(results), end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="policy-assistant", description=__doc__)
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -198,6 +257,29 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--json", action="store_true", help="print the answer as JSON")
     _qdrant_args(ask)
     ask.set_defaults(func=_ask)
+
+    ev = sub.add_parser("eval", help="build the evaluation set and score the agent")
+    ev_sub = ev.add_subparsers(dest="action", required=True)
+    ebuild = ev_sub.add_parser("build", help="write the questions as a BEIR folder for RAGBench")
+    ebuild.add_argument("--corpus", default="data/corpus", help="folder with corpus.jsonl")
+    ebuild.add_argument("--out", default="data/regulations-qa", help="output folder")
+    ebuild.add_argument("--questions", help="a questions.jsonl (default: the built-in set)")
+    ebuild.set_defaults(func=_eval_build)
+
+    eagent = ev_sub.add_parser("agent", help="ask the agent every question and score it")
+    eagent.add_argument("--answerer", default="extractive", help="as for ask (default extractive)")
+    eagent.add_argument("--effort", default="medium", help="Claude's effort level")
+    eagent.add_argument("-k", type=int, default=5, help="how many chunks to retrieve")
+    eagent.add_argument("--min-score", type=float, default=0.0, help="drop chunks scoring lower")
+    eagent.add_argument("--questions", help="a questions.jsonl (default: the built-in set)")
+    eagent.add_argument("--limit", type=int, help="only the first N questions")
+    eagent.add_argument("--out", help="result JSON (default results/agent__<answerer>.json)")
+    _qdrant_args(eagent)
+    eagent.set_defaults(func=_eval_agent)
+
+    ereport = ev_sub.add_parser("report", help="Markdown table of agent result files")
+    ereport.add_argument("results", nargs="+")
+    ereport.set_defaults(func=_eval_report)
     return parser
 
 

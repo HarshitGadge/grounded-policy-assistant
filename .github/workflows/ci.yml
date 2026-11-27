@@ -74,7 +74,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[dev,fastembed]'
+      - run: pip install -e '.[dev,fastembed,eval]'
       - uses: actions/cache@v4
         with:
           path: /home/runner/.cache/fastembed
@@ -109,6 +109,29 @@ jobs:
           policy-assistant ask --answerer openrouter "When must a financial institution provide an initial privacy notice to a customer?"
       - name: Check them
         run: pytest -m live -rs tests/live
+      - name: Build the evaluation set (hand-labeled questions over this corpus)
+        run: policy-assistant eval build --corpus data/corpus --out data/regulations-qa
+      - name: Score retrieval with RAGBench (dense Qdrant vs BM25)
+        run: |
+          ragbench run --data data/regulations-qa --retriever policy_assistant.retriever:QdrantRetriever \
+            --param model=BAAI/bge-small-en-v1.5 --name qdrant-bge-small --out results/retrieval__qdrant.json --quiet
+          ragbench run --data data/regulations-qa --retriever ragbench.retrievers.bm25:BM25 \
+            --name bm25 --out results/retrieval__bm25.json --quiet
+          ragbench report results/retrieval__*.json | tee -a "$GITHUB_STEP_SUMMARY"
+          ragbench compare results/retrieval__bm25.json results/retrieval__qdrant.json \
+            --metric ndcg@10 --metric recall@10 --metric mrr@10
+      - name: Score the agent with the extractive answerer (no model, no key)
+        # Model answerers are not run here: the full set is about 60 questions, which is
+        # billed per question on Anthropic and over the daily limit of OpenRouter's free
+        # models. Run them with: policy-assistant eval agent --answerer <name>
+        run: |
+          policy-assistant eval agent --answerer extractive --out results/agent__extractive.json
+          policy-assistant eval report results/agent__*.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: results/
+          retention-days: 90
       - uses: actions/upload-artifact@v4
         with:
           name: corpus

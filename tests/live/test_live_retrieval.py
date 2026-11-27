@@ -7,13 +7,13 @@ come back in the top five. They are not the evaluation; that is RAGBench's job.
 """
 
 import os
-import re
 from pathlib import Path
 
 import pytest
 
 from policy_assistant.corpus import load_corpus
 from policy_assistant.embed import make_encoder
+from policy_assistant.evaluate import answers_section
 from policy_assistant.index import PolicyIndex, collection_info, open_client
 
 pytestmark = pytest.mark.live
@@ -59,12 +59,7 @@ def index():
 
 def answers(passage, section: str) -> bool:
     """The passage is from the section, or is an official interpretation of it."""
-    if passage.section == section:
-        return True
-    part, number = section.split(".")
-    return passage.section == f"Supplement I to Part {part}" and bool(
-        re.search(rf"\bcomments? {re.escape(number)}\(", passage.citation)
-    )
+    return answers_section(passage, section)
 
 
 def test_every_chunk_is_indexed(index):

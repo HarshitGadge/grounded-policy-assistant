@@ -5,8 +5,8 @@ regulation text it retrieves, cites the exact paragraph each claim rests on
 (for example `12 CFR 1005.6(b)(1)`), and says it can't answer when the text doesn't
 support one. Retrieval quality is measured with [RAGBench](https://github.com/HarshitGadge/ragbench).
 
-> Status: early. This first release builds the citable regulation corpus. Qdrant
-> retrieval, the LangGraph agent and the RAGBench evaluation come in the next PRs.
+> Status: early. It builds the citable regulation corpus and searches it in Qdrant.
+> The LangGraph agent and the RAGBench evaluation come in the next PRs.
 > This README will only show numbers produced by runs in this repository.
 
 ## The corpus
@@ -63,14 +63,47 @@ The build writes three things to `--out` (default `data/corpus`):
 - `manifest.json`: the eCFR date, each part's source URL and SHA-256, and the counts.
 - `raw/`: the downloaded XML, which a rebuild reuses instead of downloading again.
 
+## Search it in Qdrant
+
+```bash
+pip install -e '.[fastembed]'
+policy-assistant index build --corpus data/corpus --qdrant data/qdrant
+policy-assistant search "How long does a bank have to investigate a transfer error?" -k 5
+policy-assistant search "Can a creditor ask about marital status?" --part 1002
+```
+
+- **Embeddings.** Chunks are embedded with
+  [`BAAI/bge-small-en-v1.5`](https://huggingface.co/BAAI/bge-small-en-v1.5) through
+  [fastembed](https://github.com/qdrant/fastembed), which runs on the CPU with no API key.
+  `--model` takes any other fastembed model. Each chunk is embedded with its citation line
+  first, so a question that names a section can match it.
+- **Qdrant.** One point per chunk, with cosine distance. The point id comes from the chunk
+  id, so rebuilding the same corpus gives the same points. The payload holds the citation,
+  section, part, eCFR date and text, so a result can be quoted and cited directly.
+  `--qdrant` keeps the index in a local folder; `--url` uses a Qdrant server instead.
+- **The index remembers its encoder.** The collection records the model that built it,
+  `search` uses that model, and a search with a different one is refused, because vectors
+  from two models can't be compared.
+- **RAGBench.** `policy_assistant.retriever:QdrantRetriever` is a RAGBench retriever, so
+  the same retrieval can be scored on any BEIR-format dataset:
+
+  ```bash
+  ragbench run --data path/to/beir-data \
+      --retriever policy_assistant.retriever:QdrantRetriever
+  ```
+
 ## Tests
 
 ```bash
-pytest                  # offline, against a fixture shaped like eCFR's XML
+pytest                  # offline: a fixture shaped like eCFR's XML, in-memory Qdrant
+pytest -m live          # against a corpus and index you built (see tests/live)
 ```
 
-CI runs lint, the tests on Python 3.10 to 3.13, a package install check, and a live
-job that builds the default corpus from eCFR and checks it.
+The offline tests use a hashing encoder (`--model hashing-512`), which needs no model
+download and only matches shared words. CI runs lint, the tests on Python 3.10 to 3.13,
+a package install check, and a live job that builds the default corpus from eCFR,
+indexes it with the real model, and checks that sample questions retrieve the section
+that answers them.
 
 ## License
 

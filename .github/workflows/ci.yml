@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install (with RAGBench, to check it reads the corpus)
+      - name: Install (with RAGBench, to check it reads the corpus and runs the retriever)
         run: pip install -e '.[dev]' ragbench-eval
       - name: Test
         run: pytest -rs --cov=policy_assistant --cov-report=term-missing
@@ -51,41 +51,42 @@ jobs:
           /tmp/venv/bin/pip install dist/*.whl
           /tmp/venv/bin/policy-assistant --version
           /tmp/venv/bin/policy-assistant corpus --help
+          /tmp/venv/bin/policy-assistant index build --help
+          /tmp/venv/bin/policy-assistant search --help
 
-  live-ecfr:
-    # Builds the default corpus from the real eCFR and checks it.
+  live:
+    # Builds the default corpus from the real eCFR, indexes it in Qdrant with the real
+    # embedding model, and checks both.
     runs-on: ubuntu-latest
+    env:
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+      GPA_CORPUS: data/corpus
+      GPA_QDRANT: data/qdrant
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[dev]'
+      - run: pip install -e '.[dev,fastembed]'
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/fastembed
+          key: fastembed-bge-small-en-v1.5
       - name: Build the corpus from eCFR
         run: policy-assistant corpus build --date latest --out data/corpus
       - name: Summarise it
         run: |
-          policy-assistant corpus stats data/corpus --show 5
+          policy-assistant corpus stats data/corpus --show 3
           cat data/corpus/manifest.json
-      - name: Show eCFR's XML for a section and the interpretations
+      - name: Index it in Qdrant
+        run: policy-assistant index build --corpus data/corpus --qdrant data/qdrant
+      - name: Show what a few questions retrieve
         run: |
-          xml=$(ls data/corpus/raw/title-12-part-1005-*.xml)
-          python scripts/inspect_ecfr.py "$xml" 1005.6
-          python scripts/inspect_ecfr.py "$xml" "Supplement I to Part 1005"
-          python scripts/inspect_ecfr.py data/corpus/raw/title-12-part-1002-*.xml "Supplement I to Part 1002"
-          python scripts/inspect_ecfr.py data/corpus/raw/title-12-part-1030-*.xml "Supplement I to Part 1030"
-      - name: Print sample citations
-        run: |
-          python - <<'PY'
-          from policy_assistant.corpus import load_corpus
-          rows = load_corpus("data/corpus")
-          for r in rows[::max(1, len(rows) // 40)]:
-              print(r["citation"], "|", r["text"][:90].replace("\n", " "))
-          PY
-      - name: Check it
+          policy-assistant search "How much can a consumer lose if they report a lost debit card within two business days?" -k 3
+          policy-assistant search "When must a financial institution give a customer its initial privacy notice?" -k 3
+          policy-assistant search "Can a creditor ask an applicant about their marital status?" -k 3
+      - name: Check them
         run: pytest -m live -rs tests/live
-        env:
-          GPA_CORPUS: data/corpus
       - uses: actions/upload-artifact@v4
         with:
           name: corpus

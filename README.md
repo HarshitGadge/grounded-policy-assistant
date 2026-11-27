@@ -5,9 +5,9 @@ regulation text it retrieves, cites the exact paragraph each claim rests on
 (for example `12 CFR 1005.6(b)(1)`), and says it can't answer when the text doesn't
 support one. Retrieval quality is measured with [RAGBench](https://github.com/HarshitGadge/ragbench).
 
-> Status: early. It builds the citable regulation corpus, searches it in Qdrant, and
-> answers with citations or refuses. The RAGBench evaluation comes in the next PR.
-> This README will only show numbers produced by runs in this repository.
+> Status: early. It builds the citable regulation corpus, searches it in Qdrant,
+> answers with citations or refuses, and is evaluated with RAGBench in CI.
+> This README only shows numbers produced by runs in this repository.
 
 ## The corpus
 
@@ -140,6 +140,44 @@ retrieve -> grade --(nothing relevant)--------------------------> refuse
 sentence, or refuses when no sentence covers most of the question's words. It calls no
 model, so the tests and CI can run the whole graph without a key; it is the floor that
 Claude has to beat in the evaluation.
+
+## Evaluation
+
+The questions are hand-written and live in
+[`src/policy_assistant/data/questions.jsonl`](src/policy_assistant/data/questions.jsonl):
+49 in-scope questions across Regulations B, E, P and DD, each labeled with the one CFR
+section that answers it, and 12 out-of-scope questions that nothing in the corpus
+answers (some far off, like highway speed limits, some close, like check holds under
+Regulation CC or credit card late fees under Regulation Z, which aren't in the corpus).
+
+```bash
+policy-assistant eval build --corpus data/corpus --out data/regulations-qa
+ragbench run --data data/regulations-qa --retriever policy_assistant.retriever:QdrantRetriever \
+    --param model=BAAI/bge-small-en-v1.5 --name qdrant-bge-small --out results/retrieval__qdrant.json
+ragbench run --data data/regulations-qa --retriever ragbench.retrievers.bm25:BM25 \
+    --name bm25 --out results/retrieval__bm25.json
+ragbench report results/retrieval__*.json
+policy-assistant eval agent --answerer extractive          # or claude, openrouter:<model id>
+policy-assistant eval report results/agent__*.json
+```
+
+`eval build` turns the labels into relevance judgements over the built corpus: every
+chunk of the labeled section, and every official interpretation of it in Supplement I,
+counts as relevant. It fails if a labeled section has no chunk, so a wrong label can't
+quietly lower the score. It writes a BEIR folder, so [RAGBench](https://github.com/HarshitGadge/ragbench)
+scores retrieval with no conversion, with bootstrap confidence intervals.
+
+Relevance is judged per section, and a section can have more relevant chunks than fit
+in the top 10, so recall@10 can't reach 1 for those questions. MRR@10 (how high the first
+relevant chunk ranks) is the measure that matters for the agent, which reads the top 5.
+
+`eval agent` asks the agent every question. An in-scope question counts as correct when
+the agent answers and cites at least one chunk of the labeled section; an out-of-scope
+question counts as correct when it refuses. CI runs it with the extractive answerer
+only, since the model answerers are billed per question (Claude) or limited to a few
+requests a day (OpenRouter's free models).
+
+Results appear here once CI has produced them.
 
 ## Tests
 

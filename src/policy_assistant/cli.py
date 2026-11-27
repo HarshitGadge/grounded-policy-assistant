@@ -155,6 +155,7 @@ def _eval_agent(args: argparse.Namespace) -> int:
     from .agent import PolicyAgent
     from .answerers import make_answerer
     from .evaluate import evaluate_agent, load_questions
+    from .openrouter import RateLimited
 
     questions = load_questions(args.questions)[: args.limit]
     options = {"effort": args.effort} if args.answerer.startswith("claude") else {}
@@ -167,6 +168,8 @@ def _eval_agent(args: argparse.Namespace) -> int:
         agent = PolicyAgent(index, answerer, k=args.k, min_score=args.min_score)
         result = evaluate_agent(agent, questions)
         info, chunks = index.info(), index.count()
+    except RateLimited as err:
+        raise SystemExit(f"policy-assistant: {err}") from None
     finally:
         index.client.close()
     result = {

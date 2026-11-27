@@ -99,6 +99,10 @@ export ANTHROPIC_API_KEY=...       # each question is one or two billed API requ
 policy-assistant ask "How much can a consumer lose if they report a lost debit card within two business days?"
 policy-assistant ask "Can a creditor ask about marital status?" --part 1002 --json
 policy-assistant ask --answerer extractive "What is a preauthorized transfer?"   # no model, no key
+
+export OPENROUTER_API_KEY=...      # any model on OpenRouter; the default is a free one
+policy-assistant ask --answerer openrouter "What is a preauthorized transfer?"
+policy-assistant ask --answerer openrouter:<model id> "What is a preauthorized transfer?"
 ```
 
 An answer is a list of short claims, each with numbered citations, then the sources:
@@ -136,6 +140,17 @@ retrieve -> grade --(nothing relevant)--------------------------> refuse
   `uncited`, or `model_refused` (Claude declined the request; the API's server-side
   fallback is on, so it first retries on Anthropic's recommended fallback model).
 
+`--answerer openrouter` runs the same graph with a model on
+[OpenRouter](https://openrouter.ai), through its OpenAI-compatible chat completions API,
+with the same prompt and answer schema. The model is `nvidia/nemotron-3.5-super-vl:free`
+unless `--answerer openrouter:<model id>` or `OPENROUTER_MODEL` names another. It asks
+for structured outputs (a strict JSON schema, routed only to providers that support
+it), and if the model has no such provider it falls back to asking for the JSON in the
+prompt. OpenRouter limits free models to a few requests a day per account (50 a day,
+according to its FAQ, unless the account has bought credits), retries are spaced out on
+a rate limit, and free endpoints may keep prompts; the prompts here are public
+regulation text and the question.
+
 `--answerer extractive` swaps Claude for a baseline that quotes the single best-matching
 sentence, or refuses when no sentence covers most of the question's words. It calls no
 model, so the tests and CI can run the whole graph without a key; it is the floor that
@@ -149,14 +164,17 @@ pytest -m live          # against a corpus and index you built (see tests/live)
 ```
 
 The offline tests use a hashing encoder (`--model hashing-512`), which needs no model
-download and only matches shared words, and a stand-in for the Anthropic client, so
-they need no key. CI runs lint, the tests on Python 3.10 to 3.13, a package install
+download and only matches shared words, and stand-ins for the Anthropic and OpenRouter
+clients, so they need no key. CI runs lint, the tests on Python 3.10 to 3.13, a package install
 check, and a live job that builds the default corpus from eCFR, indexes it with the
 real model, checks that sample questions retrieve the section that answers them, and
 runs the agent with the extractive answerer. If the repository has an
 `ANTHROPIC_API_KEY` secret, the live job also asks Claude a few questions and checks
-that it cites the right section and refuses out-of-scope questions; without the
-secret those checks are skipped.
+that it cites the right section and refuses out-of-scope questions. An
+`OPENROUTER_API_KEY` secret does the same with the OpenRouter model (the
+`OPENROUTER_MODEL` repository variable, or the free default), and those checks are
+skipped if the free model's daily limit is reached. Without the secrets these checks
+are skipped.
 
 ## License
 

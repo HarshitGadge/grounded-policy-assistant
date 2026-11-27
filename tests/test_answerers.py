@@ -210,5 +210,5 @@ def test_make_answerer(monkeypatch):
     assert make_answerer("claude").model == "claude-opus-5-5"
     assert make_answerer("claude:claude-sonnet-5-5").name == "claude:claude-sonnet-5-5"
     assert make_answerer("claude", model="claude-haiku-5-5", effort="low").effort == "low"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="extractive, claude or openrouter"):
         make_answerer("gpt")

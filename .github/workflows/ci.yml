@@ -58,10 +58,14 @@ jobs:
   live:
     # Builds the default corpus from the real eCFR, indexes it in Qdrant with the real
     # embedding model, and checks both and the agent. The agent's Claude checks run only
-    # if the ANTHROPIC_API_KEY repository secret is set; without it they are skipped.
+    # if the ANTHROPIC_API_KEY repository secret is set, and its OpenRouter checks only if
+    # OPENROUTER_API_KEY is; without them they are skipped. The OpenRouter model is the
+    # OPENROUTER_MODEL repository variable, or a free model if that isn't set.
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
       FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
       GPA_CORPUS: data/corpus
       GPA_QDRANT: data/qdrant
@@ -97,6 +101,12 @@ jobs:
         run: |
           policy-assistant ask "When must a financial institution provide an initial privacy notice to a customer?"
           policy-assistant ask "How many weeks of unpaid family leave must an employer give?"
+      - name: Ask a model on OpenRouter
+        if: env.OPENROUTER_API_KEY != ''
+        # Shown for reading only; the checks below decide. A free model may be rate limited.
+        continue-on-error: true
+        run: |
+          policy-assistant ask --answerer openrouter "When must a financial institution provide an initial privacy notice to a customer?"
       - name: Check them
         run: pytest -m live -rs tests/live
       - uses: actions/upload-artifact@v4

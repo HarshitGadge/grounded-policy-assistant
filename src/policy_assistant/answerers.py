@@ -4,6 +4,9 @@
   either claims that each cite the passages they rest on, or a refusal with a reason.
   It needs an Anthropic API key (``ANTHROPIC_API_KEY``), and each question is a billed
   API request.
+* :class:`~policy_assistant.openrouter.OpenRouterAnswerer` asks any model on
+  OpenRouter the same way, with an OpenRouter key (``OPENROUTER_API_KEY``). Its
+  default is a free model.
 * :class:`ExtractiveAnswerer` quotes the passage sentence that covers the most of the
   question's words, or refuses when no sentence covers enough of them. It calls no
   model, so it is free and deterministic: a baseline, and what the tests use.
@@ -234,11 +237,18 @@ class ExtractiveAnswerer:
 
 
 def make_answerer(name: str, **kwargs: Any):
-    """``extractive`` or ``claude`` (optionally ``claude:<model id>``)."""
+    """``extractive``, ``claude[:<model id>]`` or ``openrouter[:<model id>]``."""
+    kind, _, model = name.partition(":")
     if name == "extractive":
         return ExtractiveAnswerer(**kwargs)
-    if name == "claude" or name.startswith("claude:"):
-        model = name.partition(":")[2] or kwargs.pop("model", DEFAULT_CLAUDE_MODEL)
+    if kind == "claude":
+        model = model or kwargs.pop("model", DEFAULT_CLAUDE_MODEL)
         kwargs.pop("model", None)
         return ClaudeAnswerer(model=model, **kwargs)
-    raise ValueError(f"unknown answerer {name!r}; use extractive or claude")
+    if kind == "openrouter":
+        from .openrouter import OpenRouterAnswerer
+
+        model = model or kwargs.pop("model", None)
+        kwargs.pop("model", None)
+        return OpenRouterAnswerer(model=model, **kwargs)
+    raise ValueError(f"unknown answerer {name!r}; use extractive, claude or openrouter")

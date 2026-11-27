@@ -46,6 +46,7 @@ def test_appendix_chunks_follow_headings(part_xml):
     assert [c.citation for c in appendix] == [
         "99 CFR part 9999, Appendix A to Part 9999, A-1 Consumer's Liability",
         "99 CFR part 9999, Appendix A to Part 9999, A-2 Business Days",
+        "99 CFR part 9999, Appendix A to Part 9999, A-3 Model Form",
     ]
 
 
@@ -57,6 +58,15 @@ def test_interpretations_are_cited_as_comments(part_xml):
     ]
     small = chunks_by_section(part_xml, max_chars=60)["Supplement I to Part 9999"]
     assert small[0].citation.endswith("comment 2(a)-1")
+
+
+def test_repeated_wording_gets_distinct_ids(part_xml):
+    # Model forms repeat the same blank lines; each chunk still needs its own id.
+    appendix = chunks_by_section(part_xml, max_chars=20)["Appendix A to Part 9999"]
+    repeated = [c for c in appendix if "Name of institution" in c.text]
+    assert len(repeated) == 2
+    assert repeated[0].text == repeated[1].text
+    assert repeated[0].id != repeated[1].id
 
 
 def test_ids_are_stable_and_depend_on_date(part_xml):

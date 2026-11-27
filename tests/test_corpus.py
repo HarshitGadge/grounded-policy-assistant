@@ -39,6 +39,15 @@ def test_rebuild_reads_the_saved_xml(tmp_path, part_xml):
     assert first == second
 
 
+def test_a_section_listed_twice_is_an_error(tmp_path, part_xml):
+    twice = part_xml.replace(
+        b"</DIV6>",
+        b'<DIV8 N="9999.1" TYPE="SECTION"><HEAD>\xc2\xa7 9999.1 Again.</HEAD><P>(a) Text.</P></DIV8></DIV6>',
+    )
+    with pytest.raises(ValueError, match="more than once"):
+        build_corpus(tmp_path, "2026-01-01", [(99, "9999")], fetch=lambda *a: twice)
+
+
 def test_empty_part_is_an_error(tmp_path):
     with pytest.raises(ValueError, match="no sections"):
         build_corpus(tmp_path, "2026-01-01", [(99, "9999")], fetch=lambda *a: b"<DIV5/>")

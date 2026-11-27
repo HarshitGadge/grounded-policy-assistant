@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +76,10 @@ def build_chunks(
     for title, part in parts:
         xml = _raw_xml(title, part, date, raw_dir, fetch)
         sections = parse_part(xml, title, part)
+        numbers = Counter(s.number for s in sections)
+        repeated = sorted(n for n, k in numbers.items() if k > 1)
+        if repeated:
+            raise ValueError(f"{title} CFR part {part} lists these more than once: {repeated[:10]}")
         if not sections:
             raise ValueError(f"no sections found in {title} CFR part {part} on {date}")
         part_chunks = [c for s in sections for c in chunk_section(s, date, max_chars)]
@@ -90,9 +95,11 @@ def build_chunks(
                 chunks=len(part_chunks),
             )
         )
-    ids = [c.id for c in chunks]
-    if len(ids) != len(set(ids)):
-        raise ValueError("duplicate chunk ids: two chunks have the same citation and text")
+    seen: dict[str, Chunk] = {}
+    for c in chunks:
+        if c.id in seen:
+            raise ValueError(f"duplicate chunk id {c.id}: {seen[c.id].citation} and {c.citation}")
+        seen[c.id] = c
     return chunks, stats
 
 

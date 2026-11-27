@@ -106,13 +106,16 @@ def _groups(section: Section, max_chars: int) -> list[list[Paragraph]]:
 
 def chunk_section(section: Section, date: str, max_chars: int = DEFAULT_MAX_CHARS) -> list[Chunk]:
     chunks = []
-    for group in _groups(section, max_chars):
+    for position, group in enumerate(_groups(section, max_chars)):
         labels = [p.label for p in group]
         citation = _citation(section, group)
         header = f"{citation} {section.heading}".strip()
         body = "\n".join(_line(section, p) for p in group)
         text = f"{header}\n{body}"
-        digest = hashlib.sha256(f"{date}\n{citation}\n{text}".encode()).hexdigest()[:16]
+        # The position keeps two chunks apart when a regulation repeats the same
+        # wording under one heading, as model forms do.
+        key = f"{date}\n{section.title}\n{section.part}\n{section.number}\n{position}\n{text}"
+        digest = hashlib.sha256(key.encode()).hexdigest()[:16]
         chunks.append(
             Chunk(
                 id=digest,

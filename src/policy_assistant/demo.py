@@ -76,9 +76,9 @@ REGULATIONS: tuple[tuple[str, str, str], ...] = (
     ("12 CFR 1030", "Regulation DD", "Truth in savings"),
 )
 
-# The last one is out of scope, to show a refusal.
+# The extractive answerer answers the first three in CI's live job; the last is out of
+# scope, to show a refusal.
 EXAMPLES: tuple[str, ...] = (
-    "How much can a consumer lose if they report a lost debit card within two business days?",
     "Can a creditor ask about an applicant's marital status?",
     "What is a preauthorized transfer?",
     "When must a financial institution give a customer an annual privacy notice?",

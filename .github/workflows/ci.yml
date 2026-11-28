@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install (with RAGBench, to check it reads the corpus and runs the retriever)
-        run: pip install -e '.[dev]' ragbench-eval
+        run: pip install -e '.[dev]' ragbench-eval 'streamlit>=1.40'
       - name: Test
         run: pytest -rs --cov=policy_assistant --cov-report=term-missing
 
@@ -74,7 +74,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[dev,fastembed,eval]'
+      - run: pip install -e '.[dev,fastembed,eval,app]'
       - name: Install RAGBench from GitHub (recall at any cutoff is not on PyPI yet)
         # ragbench-eval 1.1.1 on PyPI reports recall only at 10 and 100. --recall-k was
         # added on main in HarshitGadge/ragbench PR 16; this pins that commit. Drop this
@@ -113,7 +113,7 @@ jobs:
         run: |
           policy-assistant ask --answerer openrouter "When must a financial institution provide an initial privacy notice to a customer?"
       - name: Check them
-        run: pytest -m live -rs tests/live
+        run: pytest -m live -rs -s tests/live
       - name: Build the evaluation set (hand-labeled questions over this corpus)
         run: policy-assistant eval build --corpus data/corpus --out data/regulations-qa
       - name: Score retrieval with RAGBench (dense Qdrant vs BM25)

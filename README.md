@@ -156,6 +156,32 @@ sentence, or refuses when no sentence covers most of the question's words. It ca
 model, so the tests and CI can run the whole graph without a key; it is the floor that
 Claude has to beat in the evaluation.
 
+## Landing page
+
+[`streamlit_app.py`](streamlit_app.py) is a one-page site for the project: what it does,
+the scores from the Results section below (each linked to its CI run), a box to ask it a
+question with example questions (one out of scope, to show a refusal), the agent's graph
+and the four regulations it reads.
+
+```bash
+pip install -e '.[app]'
+streamlit run streamlit_app.py
+```
+
+On first start it builds the index itself: it downloads the four parts from eCFR as of
+2026-11-01 and embeds them in an in-memory Qdrant collection.
+It answers with the extractive answerer, so it needs no key. If `OPENROUTER_API_KEY` is
+set, visitors can also pick the free OpenRouter model, which shares that account's daily
+limit for free models.
+
+To put it online with [Streamlit Community Cloud](https://streamlit.io/cloud): sign in
+with GitHub, choose **Create app**, pick this repository, branch `main` and main file
+`streamlit_app.py`. It installs from [`requirements.txt`](requirements.txt). Add
+`OPENROUTER_API_KEY` under the app's **Secrets** only if you want the model option.
+
+CI renders the page with Streamlit's test runner on a small fixture corpus, and the live
+job runs it on the real corpus and asks it every example question.
+
 ## Evaluation
 
 The questions are hand-written and live in

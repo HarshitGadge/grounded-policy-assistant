@@ -6,6 +6,7 @@ job log shows what a visitor sees for each example.
 """
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -13,7 +14,8 @@ from policy_assistant import demo
 
 pytestmark = pytest.mark.live
 
-CORPUS = os.environ.get("GPA_CORPUS", "data/corpus")
+ROOT = Path(__file__).parent.parent.parent
+CORPUS = str(Path(os.environ.get("GPA_CORPUS", "data/corpus")).resolve())
 
 
 def test_the_landing_page_answers_the_examples(monkeypatch):
@@ -23,7 +25,7 @@ def test_the_landing_page_answers_the_examples(monkeypatch):
     monkeypatch.setenv("GPA_DEMO_CORPUS", CORPUS)
     monkeypatch.delenv("GPA_DEMO_ENCODER", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    at = AppTest.from_file("streamlit_app.py", default_timeout=600).run()
+    at = AppTest.from_file(str(ROOT / "streamlit_app.py"), default_timeout=600).run()
     assert not at.exception
 
     outcomes = {}
